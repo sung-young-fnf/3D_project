@@ -3,3 +3,10 @@ scene.spz
 space.spz
 spark/
 .omc/
+.env
+.env.local
+captures/
+node_modules/
+dist/
+.vite/
+claude_vmd_report.md

@@ -18,9 +18,12 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.position.set(0, 1.6, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({
+  antialias: false,
+  powerPreference: "high-performance",
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 document.body.appendChild(renderer.domElement);
 
 const spark = new SparkRenderer({ renderer });
@@ -35,7 +38,7 @@ dirLight.position.set(2, 3, 1);
 scene.add(dirLight);
 
 // ─── Splat 로딩 ─────────────────────────────────────────
-const splat = new SplatMesh({ url: "./space.spz" });
+const splat = new SplatMesh({ url: "/space.spz" });
 scene.add(splat);
 
 let editor = null;
