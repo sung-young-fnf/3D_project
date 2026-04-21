@@ -594,13 +594,23 @@ async function callEnhance(context = "") {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
 
+  // 박스 목록 + moved 플래그 (displacement 또는 scale 조정된 박스) 서버로 전달
+  const boxes = editor.boxes.map((b) => ({
+    name: b.name,
+    moved:
+      b.displacement.lengthSq() > 0.0001 ||
+      Math.abs(b.scaleFactor.x - 1) > 0.01 ||
+      Math.abs(b.scaleFactor.y - 1) > 0.01 ||
+      Math.abs(b.scaleFactor.z - 1) > 0.01,
+  }));
+
   let originalBase64 = null;
   try {
     originalBase64 = await captureCanvas();
     const resp = await fetch("/api/enhance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_base64: originalBase64, context }),
+      body: JSON.stringify({ image_base64: originalBase64, context, boxes }),
       signal: controller.signal,
     });
     const data = await resp.json();

@@ -37,7 +37,8 @@ const ENHANCE_PROMPT_BASE = `이 3D 매장/공간 이미지에는 3D Gaussian Sp
 - 렌더링 아티팩트만 자연스럽게 제거해 깔끔한 실내 사진처럼 보정한다.
 - 새 물체를 추가하거나 기존 물체를 제거하지 않는다.
 - 배경(벽·바닥·천장) 질감은 일관되게 복원한다.
-- 원본의 카메라 각도와 구도를 유지한다.`;
+- 원본의 카메라 각도와 구도를 유지한다.
+- "최근 이동/변형된 물체" 가 주어지면 해당 영역의 잔여 잡음·경계선을 특히 정밀하게 다듬는다.`;
 
 function claudeDetectPlugin() {
   const capturesDir = resolve(__dirname, "captures");
@@ -65,7 +66,7 @@ function claudeDetectPlugin() {
           } catch {
             return sendJson(400, { error: "invalid json body" });
           }
-          const { image_base64, context } = body;
+          const { image_base64, context, boxes } = body;
           if (!image_base64) {
             return sendJson(400, { error: "image_base64 required" });
           }
@@ -80,9 +81,25 @@ function claudeDetectPlugin() {
           const capture_id = timestampId();
           writeFileSync(join(capturesDir, `${capture_id}.jpg`), Buffer.from(image_base64, "base64"));
 
-          const prompt = context
-            ? `${ENHANCE_PROMPT_BASE}\n\n사용자 맥락: ${context}`
-            : ENHANCE_PROMPT_BASE;
+          // 박스 목록 → 프롬프트 컨텍스트
+          let boxContext = "";
+          if (Array.isArray(boxes) && boxes.length > 0) {
+            const moved = boxes.filter((b) => b?.moved).map((b) => b.name);
+            const all = boxes.map((b) => b?.name).filter(Boolean);
+            const lines = [];
+            if (moved.length > 0) {
+              lines.push(`최근 이동/변형된 물체: ${moved.join(", ")}`);
+            }
+            if (all.length > 0) {
+              lines.push(`화면의 박스 라벨 전체: ${all.join(", ")}`);
+            }
+            if (lines.length > 0) {
+              boxContext = "\n\n" + lines.join("\n");
+            }
+          }
+
+          const userContext = context ? `\n\n사용자 맥락: ${context}` : "";
+          const prompt = `${ENHANCE_PROMPT_BASE}${boxContext}${userContext}`;
 
           const started = Date.now();
           const geminiCall = fetch(
