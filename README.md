@@ -34,14 +34,23 @@ AWS_REGION=
 BEDROCK_MODEL_ID=
 ```
 
-### 3. 개발 서버 실행
+### 3. 3D 에셋 배치
+
+프로젝트 루트에 **`space.spz`** 파일을 직접 넣어야 합니다. 이 파일은 리포지토리에 포함되지 않으므로(`.gitignore`) 사용자가 별도 확보:
+
+```
+3D_project/
+└── space.spz   ← 여기에 직접 복사
+```
+
+`main.js` 의 `new SplatMesh({ url: "/space.spz" })` 가 이 파일을 참조합니다. 다른 splat 파일을 쓰려면 main.js 의 url 경로를 함께 수정하세요.
+
+### 4. 개발 서버 실행
 
 ```bash
 npx vite --port 8080
 ```
 → http://localhost:8080/
-→ http://localhost:8080/examples/vmd-test2/
-
 
 ## 조작법
 
