@@ -3,6 +3,7 @@ import {
   SplatEdit,
   SplatEditSdf,
   SplatEditSdfType,
+  dyno,
 } from "@sparkjsdev/spark";
 
 // ─── 단일 BOX 영역 ─────────────────────────────────────────
@@ -10,6 +11,7 @@ class BoxRegion {
   constructor(name, position, size, sharedEdit, scene) {
     this.name = name;
     this.size = size.clone();
+    this.originalSize = size.clone(); // 생성 시점 크기 — splat 스케일 기준
     this.originPosition = position.clone();
     this.displacement = new THREE.Vector3(0, 0, 0);
     this.sharedEdit = sharedEdit;
@@ -103,6 +105,55 @@ export class VmdEditor {
       sdfSmooth: 0,
     });
     splatMesh.add(this.sharedEdit);
+
+    // ── 활성 박스 스케일 shader (MVP: 한 번에 1개 박스만) ──
+    // 활성 박스 "원본 AABB" 내부 splat 을 중심 기준 scale 배로 키움/줄임
+    this.scaleUniforms = {
+      enable: dyno.dynoFloat(0.0),
+      center: dyno.dynoVec3(new THREE.Vector3()),
+      halfSize: dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+      scale: dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+    };
+    splatMesh.worldModifier = dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => {
+        const shader = new dyno.Dyno({
+          inTypes: {
+            gsplat: dyno.Gsplat,
+            enable: "float",
+            center: "vec3",
+            halfSize: "vec3",
+            scale: "vec3",
+          },
+          outTypes: { gsplat: dyno.Gsplat },
+          statements: ({ inputs, outputs }) =>
+            dyno.unindentLines(`
+              ${outputs.gsplat} = ${inputs.gsplat};
+              if (${inputs.enable} > 0.5) {
+                vec3 relPos = ${inputs.gsplat}.center - ${inputs.center};
+                vec3 absRel = abs(relPos);
+                if (absRel.x <= ${inputs.halfSize}.x
+                 && absRel.y <= ${inputs.halfSize}.y
+                 && absRel.z <= ${inputs.halfSize}.z) {
+                  ${outputs.gsplat}.center = ${inputs.center} + relPos * ${inputs.scale};
+                  ${outputs.gsplat}.scales *= ${inputs.scale};
+                }
+              }
+            `),
+        });
+        return {
+          gsplat: shader.apply({
+            gsplat,
+            enable: this.scaleUniforms.enable,
+            center: this.scaleUniforms.center,
+            halfSize: this.scaleUniforms.halfSize,
+            scale: this.scaleUniforms.scale,
+          }).gsplat,
+        };
+      }
+    );
+    splatMesh.updateGenerator();
 
     this.boxes = [];
     this.activeBox = null;
@@ -214,6 +265,7 @@ export class VmdEditor {
     if (this.activeBox) this.activeBox.setSelected(false);
     this.activeBox = box;
     if (box) box.setSelected(true);
+    this._syncScaleUniforms();
   }
 
   removeActiveBox() {
@@ -223,6 +275,7 @@ export class VmdEditor {
       this.activeBox.remove(this.scene);
       this.boxes.splice(idx, 1);
       this.activeBox = null;
+      this._syncScaleUniforms();
       this.splatMesh.updateVersion();
     }
   }
@@ -231,7 +284,29 @@ export class VmdEditor {
     if (!this.activeBox) return;
     this.activeBox.size[axis] = value;
     this.activeBox.updateSize(this.activeBox.size);
+    this._syncScaleUniforms();
     this.splatMesh.updateVersion();
+  }
+
+  // 활성 박스의 원본 AABB와 scale factor를 dyno uniform에 반영
+  _syncScaleUniforms() {
+    const box = this.activeBox;
+    if (!box) {
+      this.scaleUniforms.enable.value = 0.0;
+      return;
+    }
+    this.scaleUniforms.enable.value = 1.0;
+    this.scaleUniforms.center.value.copy(box.originPosition);
+    this.scaleUniforms.halfSize.value.set(
+      box.originalSize.x * 0.5,
+      box.originalSize.y * 0.5,
+      box.originalSize.z * 0.5
+    );
+    this.scaleUniforms.scale.value.set(
+      box.size.x / box.originalSize.x,
+      box.size.y / box.originalSize.y,
+      box.size.z / box.originalSize.z
+    );
   }
 
   // ─── 유틸리티 ─────────────────────────────────────────────
