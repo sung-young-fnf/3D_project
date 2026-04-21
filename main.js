@@ -592,7 +592,7 @@ async function callEnhance(context = "") {
 
   const ticker = startElapsedTicker("보정 중...");
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 55000);
 
   // 박스 목록 + moved 플래그 (displacement 또는 scale 조정된 박스) 서버로 전달
   const boxes = editor.boxes.map((b) => ({

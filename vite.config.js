@@ -144,7 +144,7 @@ function claudeDetectPlugin() {
               }),
             }
           );
-          const geminiResp = await withTimeout(geminiCall, 20000);
+          const geminiResp = await withTimeout(geminiCall, 50000, "Gemini");
 
           if (!geminiResp.ok) {
             const errText = await geminiResp.text().catch(() => "");
@@ -229,7 +229,7 @@ function claudeDetectPlugin() {
             system: [{ type: "text", text: COMMAND_SYSTEM_PROMPT }],
             messages: [{ role: "user", content: userPrompt }],
           });
-          const resp = await withTimeout(bedrockCall, 30000);
+          const resp = await withTimeout(bedrockCall, 30000, "Bedrock");
 
           const responseText = (resp.content ?? [])
             .filter((b) => b.type === "text")
@@ -304,7 +304,7 @@ function claudeDetectPlugin() {
             }],
           });
 
-          const resp = await withTimeout(bedrockCall, 60000);
+          const resp = await withTimeout(bedrockCall, 60000, "Bedrock");
 
           const text = (resp.content ?? [])
             .filter((b) => b.type === "text")
@@ -335,11 +335,11 @@ function timestampId() {
   );
 }
 
-function withTimeout(promise, ms) {
+function withTimeout(promise, ms, label = "Request") {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Bedrock timeout ${ms}ms`)), ms)
+      setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms)
     ),
   ]);
 }
