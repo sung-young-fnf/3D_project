@@ -336,6 +336,16 @@ function updateClaudeButton() {
   if (btnClaudeCmd) btnClaudeCmd.disabled = !hasText;
 }
 
+// 호출 중 실시간 경과 시간 카운터 — 100ms 간격으로 상태 텍스트 갱신
+function startElapsedTicker(label) {
+  const start = performance.now();
+  const fmt = () => ((performance.now() - start) / 1000).toFixed(1);
+  const tick = () => setClaudeStatus("loading", `${label} ${fmt()}s`);
+  tick();
+  const id = setInterval(tick, 100);
+  return { stop: () => clearInterval(id), elapsed: fmt };
+}
+
 async function captureCanvas() {
   // preserveDrawingBuffer=false 이므로 즉시 한 프레임 강제 렌더 후 복사
   renderer.render(scene, camera);
@@ -367,14 +377,12 @@ async function callClaudeDetect(target, mode) {
   const targetValue = (target ?? "").trim();
   if (mode === "target" && !targetValue) return;
 
-  setClaudeStatus("loading", "분석 중...");
   if (btnClaude) btnClaude.disabled = true;
   if (btnClaudeAll) btnClaudeAll.disabled = true;
 
+  const ticker = startElapsedTicker("분석 중...");
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 65000);
-  const startTime = performance.now();
-  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
 
   try {
     const image_base64 = await captureCanvas();
@@ -389,7 +397,7 @@ async function callClaudeDetect(target, mode) {
       signal: controller.signal,
     });
     const data = await resp.json();
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
     const dets = data.detections ?? [];
@@ -407,13 +415,14 @@ async function callClaudeDetect(target, mode) {
     );
     updateUI();
   } catch (err) {
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     if (err.name === "AbortError") {
       setClaudeStatus("error", `시간 초과 (${elapsed}s)`);
     } else {
       setClaudeStatus("error", `에러: ${err.message} (${elapsed}s)`);
     }
   } finally {
+    ticker.stop();
     clearTimeout(timeoutId);
     if (btnClaudeAll) btnClaudeAll.disabled = false;
     updateClaudeButton();
@@ -443,15 +452,13 @@ async function callClaudeCommand(text) {
     return;
   }
 
-  setClaudeStatus("loading", "명령 해석 중...");
   if (btnClaude) btnClaude.disabled = true;
   if (btnClaudeAll) btnClaudeAll.disabled = true;
   if (btnClaudeCmd) btnClaudeCmd.disabled = true;
 
+  const ticker = startElapsedTicker("명령 해석 중...");
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 35000);
-  const startTime = performance.now();
-  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
 
   try {
     const resp = await fetch("/api/command", {
@@ -461,7 +468,7 @@ async function callClaudeCommand(text) {
       signal: controller.signal,
     });
     const data = await resp.json();
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
     if (data.action === "swap" && Array.isArray(data.targets) && data.targets.length === 2) {
@@ -480,13 +487,14 @@ async function callClaudeCommand(text) {
       );
     }
   } catch (err) {
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     if (err.name === "AbortError") {
       setClaudeStatus("error", `시간 초과 (${elapsed}s)`);
     } else {
       setClaudeStatus("error", `에러: ${err.message} (${elapsed}s)`);
     }
   } finally {
+    ticker.stop();
     clearTimeout(timeoutId);
     if (btnClaudeAll) btnClaudeAll.disabled = false;
     updateClaudeButton();
@@ -577,16 +585,14 @@ async function callEnhance(context = "") {
     return;
   }
 
-  setClaudeStatus("loading", "보정 중...");
   if (btnClaude) btnClaude.disabled = true;
   if (btnClaudeAll) btnClaudeAll.disabled = true;
   if (btnClaudeCmd) btnClaudeCmd.disabled = true;
   if (btnClaudeEnhance) btnClaudeEnhance.disabled = true;
 
+  const ticker = startElapsedTicker("보정 중...");
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 25000);
-  const startTime = performance.now();
-  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
 
   let originalBase64 = null;
   try {
@@ -598,7 +604,7 @@ async function callEnhance(context = "") {
       signal: controller.signal,
     });
     const data = await resp.json();
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
     const mime = data.enhanced_mime || "image/png";
@@ -611,7 +617,7 @@ async function callEnhance(context = "") {
     });
     setClaudeStatus("ok", `보정 완료 (${elapsed}s)`);
   } catch (err) {
-    const elapsed = fmtElapsed();
+    const elapsed = ticker.elapsed();
     const msg =
       err.name === "AbortError"
         ? `시간 초과 (${elapsed}s)`
@@ -627,6 +633,7 @@ async function callEnhance(context = "") {
       });
     }
   } finally {
+    ticker.stop();
     clearTimeout(timeoutId);
     if (btnClaudeAll) btnClaudeAll.disabled = false;
     if (btnClaudeEnhance) btnClaudeEnhance.disabled = false;
