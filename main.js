@@ -388,7 +388,7 @@ async function callClaudeDetect(target, mode) {
     for (const d of dets) {
       const box = editor.createBoxFromScreenBBox(d.bbox);
       if (box) {
-        if (d.label) box.name = `${box.name} · ${d.label}`;
+        if (d.label) box.setName(d.label);
         created++;
       }
     }
