@@ -104,6 +104,9 @@ window.addEventListener("keydown", (e) => {
     case "x":
       if (currentMode !== "anchor") setMode("anchor");
       return;
+    case "z":
+      toggleWire();
+      return;
     case "escape":
       setMode("camera");
       return;
@@ -284,6 +287,15 @@ document.getElementById("btn-camera")?.addEventListener("click", () => setMode("
 document.getElementById("btn-select")?.addEventListener("click", () => setMode("select"));
 document.getElementById("btn-move")?.addEventListener("click", () => setMode("move"));
 document.getElementById("btn-anchor")?.addEventListener("click", () => setMode("anchor"));
+
+// 박스 와이어프레임 표시 토글 (Z 키 / 버튼)
+const btnWire = document.getElementById("btn-wire");
+function toggleWire() {
+  if (!editor) return;
+  const visible = editor.toggleWireframes();
+  btnWire?.classList.toggle("active", visible);
+}
+btnWire?.addEventListener("click", toggleWire);
 
 // ─── Claude 물체 감지 ────────────────────────────────────
 const claudeInput = document.getElementById("claude-target");
