@@ -32,12 +32,12 @@ cd ..
 # AWS Bedrock (Claude Vision / 자연어 명령)
 AWS_BEARER_TOKEN_BEDROCK=<발급받은 토큰>
 AWS_REGION=us-west-2
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+BEDROCK_MODEL_ID=us.anthropic.claude-opus-4-7
 
 # Gemini 3.1 Flash Image (🎨 보정용)
 # https://aistudio.google.com/apikey
 GEMINI_API_KEY=<발급받은 키>
-GEMINI_MODEL_ID=gemini-2.5-flash-image-preview
+GEMINI_MODEL_ID=gemini-3.1-flash-image-preview
 ```
 
 ### 3. 3D 에셋 배치
@@ -155,6 +155,6 @@ npx vite --port 8080
 
 - **렌더링**: Spark (3D Gaussian Splatting on THREE.js WebGL2) + dyno 셰이더 그래프
 - **빌드**: Vite 6 (dev 서버 + `configureServer` 훅으로 API 미들웨어)
-- **AI (Vision/NLP)**: AWS Bedrock (Claude Sonnet/Opus) via `@anthropic-ai/bedrock-sdk`
-- **AI (이미지 보정)**: Google Gemini 2.5 Flash Image (REST, x-goog-api-key 인증, fetch 직접 호출)
+- **AI (Vision/NLP)**: AWS Bedrock (Claude Opus) via `@anthropic-ai/bedrock-sdk`
+- **AI (이미지 보정)**: Google Gemini 3.1 Flash Image (REST, x-goog-api-key 인증, fetch 직접 호출)
 - **3D**: three.js 0.180
