@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
 import "dotenv/config";
 import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
 
@@ -38,7 +38,8 @@ const ENHANCE_PROMPT_BASE = `이 3D 매장/공간 이미지에는 3D Gaussian Sp
 - 새 물체를 추가하거나 기존 물체를 제거하지 않는다.
 - 배경(벽·바닥·천장) 질감은 일관되게 복원한다.
 - 원본의 카메라 각도와 구도를 유지한다.
-- "최근 이동/변형된 물체" 가 주어지면 해당 영역의 잔여 잡음·경계선을 특히 정밀하게 다듬는다.`;
+- "최근 이동/변형된 물체" 가 주어지면 해당 영역의 잔여 잡음·경계선을 특히 정밀하게 다듬는다.
+- 편집 전 참조 이미지가 함께 제공되면 그 이미지의 조명·질감·색감 일관성을 유지하며 편집 후 이미지의 아티팩트만 정돈한다.`;
 
 function claudeDetectPlugin() {
   const capturesDir = resolve(__dirname, "captures");
@@ -78,6 +79,23 @@ function claudeDetectPlugin() {
           const modelId = process.env.GEMINI_MODEL_ID ?? "gemini-2.5-flash-image-preview";
 
           if (!existsSync(capturesDir)) mkdirSync(capturesDir, { recursive: true });
+
+          // 이전 원본(비보정) 캡처를 참조로 사용 — 편집 전 상태 기준 스타일·조명 유지
+          let referenceBase64 = null;
+          let referenceId = null;
+          try {
+            const priorFiles = readdirSync(capturesDir)
+              .filter((f) => /\.jpe?g$/i.test(f) && !f.includes("-enhanced"))
+              .sort();
+            const previousFile = priorFiles[priorFiles.length - 1]; // 가장 최근 .jpg
+            if (previousFile) {
+              referenceBase64 = readFileSync(join(capturesDir, previousFile)).toString("base64");
+              referenceId = previousFile.replace(/\.jpe?g$/i, "");
+            }
+          } catch (err) {
+            console.warn("[/api/enhance] 참조 캡처 로드 실패:", err?.message);
+          }
+
           const capture_id = timestampId();
           writeFileSync(join(capturesDir, `${capture_id}.jpg`), Buffer.from(image_base64, "base64"));
 
@@ -101,6 +119,17 @@ function claudeDetectPlugin() {
           const userContext = context ? `\n\n사용자 맥락: ${context}` : "";
           const prompt = `${ENHANCE_PROMPT_BASE}${boxContext}${userContext}`;
 
+          // Gemini 멀티 이미지 parts — 참조가 있으면 먼저 보낸 뒤 현재 이미지
+          const parts = [];
+          if (referenceBase64) {
+            parts.push({ inline_data: { mime_type: "image/jpeg", data: referenceBase64 } });
+            parts.push({
+              text: "위 이미지는 편집 이전 장면의 참조용 원본이다. 아래 이미지가 이번에 보정해야 할 편집 후 이미지다.",
+            });
+          }
+          parts.push({ inline_data: { mime_type: "image/jpeg", data: image_base64 } });
+          parts.push({ text: prompt });
+
           const started = Date.now();
           const geminiCall = fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`,
@@ -111,12 +140,7 @@ function claudeDetectPlugin() {
                 "x-goog-api-key": apiKey,
               },
               body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { inline_data: { mime_type: "image/jpeg", data: image_base64 } },
-                    { text: prompt },
-                  ],
-                }],
+                contents: [{ parts }],
               }),
             }
           );
@@ -149,6 +173,7 @@ function claudeDetectPlugin() {
             enhanced_base64,
             enhanced_mime,
             elapsed_ms: Date.now() - started,
+            reference_id: referenceId,
           });
         } catch (err) {
           console.error("[/api/enhance]", err);

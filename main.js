@@ -619,10 +619,11 @@ async function callEnhance(context = "") {
 
     const mime = data.enhanced_mime || "image/png";
     const ext = mime.includes("png") ? "png" : "jpg";
+    const refInfo = data.reference_id ? ` · ref ${data.reference_id}` : " · no ref";
     openEnhanceModal({
       originalDataUrl: `data:image/jpeg;base64,${originalBase64}`,
       enhancedDataUrl: `data:${mime};base64,${data.enhanced_base64}`,
-      info: `${data.capture_id} · ${elapsed}s`,
+      info: `${data.capture_id} · ${elapsed}s${refInfo}`,
       filename: `${data.capture_id}-enhanced.${ext}`,
     });
     setClaudeStatus("ok", `보정 완료 (${elapsed}s)`);
