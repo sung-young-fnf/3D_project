@@ -265,6 +265,8 @@ async function callClaudeDetect(target, mode) {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 35000);
+  const startTime = performance.now();
+  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
 
   try {
     const image_base64 = await captureCanvas();
@@ -279,6 +281,7 @@ async function callClaudeDetect(target, mode) {
       signal: controller.signal,
     });
     const data = await resp.json();
+    const elapsed = fmtElapsed();
     if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
 
     const dets = data.detections ?? [];
@@ -290,13 +293,17 @@ async function callClaudeDetect(target, mode) {
         created++;
       }
     }
-    setClaudeStatus("ok", `감지 ${dets.length}건 → 박스 ${created}개 생성`);
+    setClaudeStatus(
+      "ok",
+      `감지 ${dets.length}건 → 박스 ${created}개 (${elapsed}s)`
+    );
     updateUI();
   } catch (err) {
+    const elapsed = fmtElapsed();
     if (err.name === "AbortError") {
-      setClaudeStatus("error", "시간 초과 (35초)");
+      setClaudeStatus("error", `시간 초과 (${elapsed}s)`);
     } else {
-      setClaudeStatus("error", `에러: ${err.message}`);
+      setClaudeStatus("error", `에러: ${err.message} (${elapsed}s)`);
     }
   } finally {
     clearTimeout(timeoutId);
