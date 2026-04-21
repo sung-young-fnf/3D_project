@@ -264,7 +264,7 @@ async function callClaudeDetect(target, mode) {
   if (btnClaudeAll) btnClaudeAll.disabled = true;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 35000);
+  const timeoutId = setTimeout(() => controller.abort(), 65000);
   const startTime = performance.now();
   const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
 

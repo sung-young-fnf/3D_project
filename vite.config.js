@@ -82,7 +82,7 @@ function claudeDetectPlugin() {
             }],
           });
 
-          const resp = await withTimeout(bedrockCall, 30000);
+          const resp = await withTimeout(bedrockCall, 60000);
 
           const text = (resp.content ?? [])
             .filter((b) => b.type === "text")
