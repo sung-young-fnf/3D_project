@@ -195,7 +195,10 @@ function updatePropertyPanel() {
   panel.classList.remove("hidden");
 
   const box = editor.activeBox;
-  document.getElementById("prop-name").textContent = box.name;
+  const nameInput = document.getElementById("prop-name-input");
+  if (nameInput && document.activeElement !== nameInput) {
+    nameInput.value = box.name;
+  }
 
   ["x", "y", "z"].forEach((axis) => {
     const sizeStr = box.size[axis].toFixed(2);
@@ -236,6 +239,23 @@ function updatePropertyPanel() {
       if (scaleVals[axis]) scaleVals[axis].textContent = val.toFixed(2);
     }
   });
+});
+
+// 박스 이름 편집 — Claude 명령 매칭을 위해 사용자가 자유 명명
+const propNameInput = document.getElementById("prop-name-input");
+propNameInput?.addEventListener("input", () => {
+  if (!editor?.activeBox) return;
+  editor.activeBox.name = propNameInput.value;
+  updateBoxList();
+});
+propNameInput?.addEventListener("blur", () => {
+  if (!editor?.activeBox) return;
+  const trimmed = propNameInput.value.trim();
+  if (!trimmed) {
+    editor.activeBox.name = `영역 ${editor.activeBox.id}`;
+    propNameInput.value = editor.activeBox.name;
+    updateBoxList();
+  }
 });
 
 // 탭 전환
