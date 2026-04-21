@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import "dotenv/config";
 import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
 
@@ -83,7 +83,7 @@ function claudeDetectPlugin() {
           } catch {
             return sendJson(400, { error: "invalid json body" });
           }
-          const { image_base64, context, boxes } = body;
+          const { image_base64, reference_base64, context, boxes } = body;
           if (!image_base64) {
             return sendJson(400, { error: "image_base64 required" });
           }
@@ -95,25 +95,25 @@ function claudeDetectPlugin() {
           const modelId = process.env.GEMINI_MODEL_ID ?? "gemini-2.5-flash-image-preview";
 
           if (!existsSync(capturesDir)) mkdirSync(capturesDir, { recursive: true });
-
-          // 이전 원본(비보정) 캡처를 참조로 사용 — 편집 전 상태 기준 스타일·조명 유지
-          let referenceBase64 = null;
-          let referenceId = null;
-          try {
-            const priorFiles = readdirSync(capturesDir)
-              .filter((f) => /\.jpe?g$/i.test(f) && !f.includes("-enhanced"))
-              .sort();
-            const previousFile = priorFiles[priorFiles.length - 1]; // 가장 최근 .jpg
-            if (previousFile) {
-              referenceBase64 = readFileSync(join(capturesDir, previousFile)).toString("base64");
-              referenceId = previousFile.replace(/\.jpe?g$/i, "");
-            }
-          } catch (err) {
-            console.warn("[/api/enhance] 참조 캡처 로드 실패:", err?.message);
-          }
-
           const capture_id = timestampId();
-          writeFileSync(join(capturesDir, `${capture_id}.jpg`), Buffer.from(image_base64, "base64"));
+          writeFileSync(
+            join(capturesDir, `${capture_id}.jpg`),
+            Buffer.from(image_base64, "base64")
+          );
+
+          // 클라이언트에서 보낸 pristine 레퍼런스 저장 (디버그용)
+          let referenceId = null;
+          if (reference_base64) {
+            try {
+              writeFileSync(
+                join(capturesDir, `${capture_id}-reference.jpg`),
+                Buffer.from(reference_base64, "base64")
+              );
+              referenceId = `${capture_id}-reference`;
+            } catch (err) {
+              console.warn("[/api/enhance] 레퍼런스 저장 실패:", err?.message);
+            }
+          }
 
           // 박스 목록 → 프롬프트 컨텍스트
           let boxContext = "";
@@ -133,13 +133,13 @@ function claudeDetectPlugin() {
           }
 
           const userContext = context ? `\n\n사용자 맥락: ${context}` : "";
-          const promptBase = referenceBase64 ? ENHANCE_PROMPT_WITH_REF : ENHANCE_PROMPT_NO_REF;
+          const promptBase = reference_base64 ? ENHANCE_PROMPT_WITH_REF : ENHANCE_PROMPT_NO_REF;
           const prompt = `${promptBase}${boxContext}${userContext}`;
 
           // Gemini 멀티 이미지 parts — 참조가 있으면 두 이미지 연달아 + 통합 프롬프트
           const parts = [];
-          if (referenceBase64) {
-            parts.push({ inline_data: { mime_type: "image/jpeg", data: referenceBase64 } });
+          if (reference_base64) {
+            parts.push({ inline_data: { mime_type: "image/jpeg", data: reference_base64 } });
           }
           parts.push({ inline_data: { mime_type: "image/jpeg", data: image_base64 } });
           parts.push({ text: prompt });

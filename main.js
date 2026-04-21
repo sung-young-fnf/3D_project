@@ -369,6 +369,34 @@ async function captureCanvas() {
   return dataUrl.split(",")[1];
 }
 
+// Pristine 캡처 — 편집 효과 전부 끄고 와이어프레임도 숨긴 상태의 스플랫만
+// 현재 카메라 각도 그대로, "박스 지정 전" 상태를 1프레임 재현 후 복구
+async function capturePristineReference() {
+  if (!editor) throw new Error("editor 준비 안 됨");
+
+  const savedDisps = editor.boxes.map((b) => b.displacement.clone());
+  const savedScaleEnable = editor.scaleUniforms.enable.value;
+  const savedWireVis = editor.boxes.map((b) => b.wireframe.visible);
+
+  editor.boxes.forEach((b) => {
+    b.setDisplacement(new THREE.Vector3(0, 0, 0));
+    b.wireframe.visible = false;
+  });
+  editor.scaleUniforms.enable.value = 0;
+  splat.updateVersion();
+
+  try {
+    return await captureCanvas();
+  } finally {
+    editor.boxes.forEach((b, i) => {
+      b.setDisplacement(savedDisps[i]);
+      b.wireframe.visible = savedWireVis[i];
+    });
+    editor.scaleUniforms.enable.value = savedScaleEnable;
+    splat.updateVersion();
+  }
+}
+
 async function callClaudeDetect(target, mode) {
   if (!editor) {
     setClaudeStatus("error", "아직 splat 로딩 중...");
@@ -605,12 +633,19 @@ async function callEnhance(context = "") {
   }));
 
   let originalBase64 = null;
+  let referenceBase64 = null;
   try {
+    referenceBase64 = await capturePristineReference();
     originalBase64 = await captureCanvas();
     const resp = await fetch("/api/enhance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_base64: originalBase64, context, boxes }),
+      body: JSON.stringify({
+        image_base64: originalBase64,
+        reference_base64: referenceBase64,
+        context,
+        boxes,
+      }),
       signal: controller.signal,
     });
     const data = await resp.json();
