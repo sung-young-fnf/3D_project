@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   SparkRenderer,
   SplatMesh,
@@ -25,6 +26,15 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 document.body.appendChild(renderer.domElement);
+
+// CSS2D 라벨 렌더러 — 3D 박스 위에 HTML 라벨 오버레이
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = "absolute";
+labelRenderer.domElement.style.top = "0";
+labelRenderer.domElement.style.left = "0";
+labelRenderer.domElement.style.pointerEvents = "none";
+document.body.appendChild(labelRenderer.domElement);
 
 const spark = new SparkRenderer({ renderer });
 scene.add(spark);
@@ -248,15 +258,16 @@ function updatePropertyPanel() {
 const propNameInput = document.getElementById("prop-name-input");
 propNameInput?.addEventListener("input", () => {
   if (!editor?.activeBox) return;
-  editor.activeBox.name = propNameInput.value;
+  editor.activeBox.setName(propNameInput.value);
   updateBoxList();
 });
 propNameInput?.addEventListener("blur", () => {
   if (!editor?.activeBox) return;
   const trimmed = propNameInput.value.trim();
   if (!trimmed) {
-    editor.activeBox.name = `영역 ${editor.activeBox.id}`;
-    propNameInput.value = editor.activeBox.name;
+    const fallback = `영역 ${editor.activeBox.id}`;
+    editor.activeBox.setName(fallback);
+    propNameInput.value = fallback;
     updateBoxList();
   }
 });
@@ -498,6 +509,7 @@ renderer.setAnimationLoop(function animate() {
     controls.update(camera);
   }
   renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
 });
 
 // ─── 리사이즈 ────────────────────────────────────────────
@@ -505,4 +517,5 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
 });

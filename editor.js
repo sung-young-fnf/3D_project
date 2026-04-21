@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   SplatEdit,
   SplatEditSdf,
@@ -58,11 +59,32 @@ class BoxRegion {
     this.hitbox.scale.copy(size);
     this.hitbox.userData.boxRegion = this;
     scene.add(this.hitbox);
+
+    // CSS2D 라벨 — 박스 상단 왼쪽 모서리에 부착
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "box-label";
+    labelDiv.textContent = name;
+    this.label = new CSS2DObject(labelDiv);
+    // 라벨의 bottom-left 가 3D 점에 붙게 → 모서리 바로 위에 태그처럼 매달림
+    this.label.center.set(0, 1);
+    scene.add(this.label);
+    this._updateLabelPos();
+  }
+
+  _updateLabelPos() {
+    const worldPos = this.originPosition.clone().add(this.displacement);
+    worldPos.x -= this.size.x * 0.5;
+    worldPos.y += this.size.y * 0.5;
+    // z 는 박스 중심 유지 (CSS2D 는 항상 카메라 향함)
+    this.label.position.copy(worldPos);
   }
 
   setSelected(active) {
     this.wireframe.material.color.setHex(active ? 0xffff00 : 0x00ffff);
     this.wireframe.material.opacity = active ? 1.0 : 0.7;
+    if (this.label) {
+      this.label.element.classList.toggle("active", active);
+    }
   }
 
   setDisplacement(d) {
@@ -71,6 +93,7 @@ class BoxRegion {
     const pos = this.originPosition.clone().add(d);
     this.wireframe.position.copy(pos);
     this.hitbox.position.copy(pos);
+    this._updateLabelPos();
   }
 
   updateSize(size) {
@@ -78,6 +101,7 @@ class BoxRegion {
     this.sdf.scale.copy(size);
     this.wireframe.scale.copy(size);
     this.hitbox.scale.copy(size);
+    this._updateLabelPos();
   }
 
   // 박스 원점(originPosition) 변경 — X 드래그에서 호출.
@@ -88,16 +112,25 @@ class BoxRegion {
     this.sdf.position.copy(worldPos);
     this.wireframe.position.copy(worldPos);
     this.hitbox.position.copy(worldPos);
+    this._updateLabelPos();
+  }
+
+  // 이름 변경 — name 프로퍼티 + 라벨 텍스트 동기화
+  setName(name) {
+    this.name = name;
+    if (this.label) this.label.element.textContent = name;
   }
 
   remove(scene) {
     scene.remove(this.wireframe);
     scene.remove(this.hitbox);
+    scene.remove(this.label);
     this.sharedEdit.remove(this.sdf);
     this.wireframe.geometry.dispose();
     this.wireframe.material.dispose();
     this.hitbox.geometry.dispose();
     this.hitbox.material.dispose();
+    if (this.label) this.label.element.remove();
   }
 }
 
@@ -210,6 +243,7 @@ export class VmdEditor {
     this.wireframesVisible = !this.wireframesVisible;
     this.boxes.forEach((b) => {
       b.wireframe.visible = this.wireframesVisible;
+      if (b.label) b.label.visible = this.wireframesVisible;
     });
     return this.wireframesVisible;
   }
@@ -227,6 +261,7 @@ export class VmdEditor {
     );
     box.id = this.boxCount;
     box.wireframe.visible = this.wireframesVisible;
+    if (box.label) box.label.visible = this.wireframesVisible;
     this.boxes.push(box);
     if (activate) this.selectBox(box);
     this.splatMesh.updateVersion();

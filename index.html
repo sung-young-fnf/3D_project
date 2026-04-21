@@ -118,6 +118,22 @@
     }
     .prop-tab-content.hidden { display: none; }
 
+    /* 3D 씬의 박스 라벨 (CSS2DRenderer) */
+    .box-label {
+      color: #0cf; background: rgba(0,0,0,0.7);
+      padding: 0.2rem 0.5rem; border-radius: 4px;
+      font-size: 0.72rem; white-space: nowrap;
+      pointer-events: none;
+      border: 1px solid rgba(0,180,255,0.4);
+      font-family: 'Segoe UI', sans-serif;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .box-label.active {
+      color: #ff3; background: rgba(40,40,0,0.85);
+      border-color: #ff3;
+    }
+
     /* 우하단 Claude 패널 */
     #claude-panel {
       position: fixed; bottom: 1.5rem; right: 1rem; width: 260px; z-index: 10;
