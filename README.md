@@ -27,11 +27,17 @@ cd ..
 
 ### 2. 환경변수 설정
 
-`.env` 생성 후 Bedrock 토큰 입력:
+`.env` 생성 후 토큰 입력:
 ```
+# AWS Bedrock (Claude Vision / 자연어 명령)
 AWS_BEARER_TOKEN_BEDROCK=<발급받은 토큰>
-AWS_REGION=
-BEDROCK_MODEL_ID=
+AWS_REGION=us-west-2
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+
+# Gemini 2.5 Flash Image (🎨 보정용)
+# https://aistudio.google.com/apikey
+GEMINI_API_KEY=<발급받은 키>
+GEMINI_MODEL_ID=gemini-2.5-flash-image-preview
 ```
 
 ### 3. 3D 에셋 배치
@@ -95,6 +101,7 @@ npx vite --port 8080
 | 입력창 + 🔍 Claude | 입력한 물건을 화면에서 찾아 bbox 지정 (박스 이름 = 감지 라벨) |
 | 전체 | 화면 속 모든 구별 가능한 물체를 bbox 로 지정 |
 | 💬 명령 | **기존 박스에 대한 자연어 조작** (예: "냉장고랑 물컵 위치 바꿔") — 현재 박스 swap 지원 |
+| 🎨 보정 | 현재 화면을 Gemini 로 **아티팩트 제거·시연용 2D 이미지** 생성 |
 | Enter 키 | 🔍 Claude 트리거 |
 
 **감지 (🔍 Claude / 전체)**
@@ -110,6 +117,18 @@ npx vite --port 8080
 - `swap`: 두 박스의 visual 위치 교환 (displacement 만 조정, 원점/AABB 유지)
 - 응답 시간이 상태에 표시됨
 
+**보정 (🎨 보정) — 2D 시연 이미지 생성**
+- 편집 후 splat 의 얼룩·블러·경계 잡음을 Gemini 가 정돈해 깔끔한 매장 사진으로 변환
+- **3D 씬은 불변** — 순수 2D 미리보기 (시연·캡처·검토용)
+- 동작 흐름:
+  1. 현재 편집 상태 캡처 (편집 후)
+  2. **Pristine 레퍼런스 즉석 캡처** — 모든 박스 효과를 잠시 끄고 같은 카메라 각도에서 순수 splat 만 렌더 → 1프레임 화면 깜빡임 가능
+  3. 두 이미지 + 박스 목록(이동/미이동 라벨) + 프롬프트를 Gemini 에 전송
+  4. 결과를 모달로 띄움 — 원본 비교 토글, PNG 저장 가능
+- `captures/` 에 `{id}.jpg` (편집 후) / `{id}-reference.jpg` (pristine) / `{id}-enhanced.png` 세 파일 쌍 저장
+- 서버 50초 / 클라이언트 55초 타임아웃
+- **한계**: Gemini 2.5 Flash Image 는 생성 모델 성격이 강해 환각이 남을 수 있음 (새 물체 추가, 텍스트 변형 등). 프롬프트로 최대한 억제하지만 완벽 제어는 어려움.
+
 ---
 
 ## 파일 구조
@@ -119,7 +138,7 @@ npx vite --port 8080
 ├── index.html           UI 레이아웃 (툴바 / 좌우 패널 / Claude 패널)
 ├── main.js              씬 초기화, 모드 관리, 이벤트 바인딩, Claude 연동, CSS2D 라벨 렌더러
 ├── editor.js            VmdEditor + BoxRegion (SDF + dyno worldModifier + CSS2DObject 라벨)
-├── vite.config.js       Vite 설정 + /api/detect + /api/command 미들웨어 (Bedrock 프록시)
+├── vite.config.js       Vite 설정 + /api/detect · /api/command (Bedrock) · /api/enhance (Gemini) 미들웨어
 ├── space.spz            3D Gaussian Splatting 에셋 (매장 공간)
 ├── captures/            Claude 호출 시 캡처 이미지 (gitignore)
 ├── .env                 Bedrock 토큰 (gitignore)
@@ -136,5 +155,6 @@ npx vite --port 8080
 
 - **렌더링**: Spark (3D Gaussian Splatting on THREE.js WebGL2) + dyno 셰이더 그래프
 - **빌드**: Vite 6 (dev 서버 + `configureServer` 훅으로 API 미들웨어)
-- **AI**: AWS Bedrock (Claude Sonnet/Opus) via `@anthropic-ai/bedrock-sdk`
+- **AI (Vision/NLP)**: AWS Bedrock (Claude Sonnet/Opus) via `@anthropic-ai/bedrock-sdk`
+- **AI (이미지 보정)**: Google Gemini 2.5 Flash Image (REST, x-goog-api-key 인증, fetch 직접 호출)
 - **3D**: three.js 0.180
