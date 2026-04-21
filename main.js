@@ -81,7 +81,17 @@ function setMode(mode) {
 }
 
 // ─── 키보드 이벤트 ───────────────────────────────────────
+function isTypingInInput() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA";
+}
+
 window.addEventListener("keydown", (e) => {
+  // 입력 필드 포커스 중엔 단축키(B/V/ESC/Delete)·mode switch 무시
+  if (isTypingInInput()) return;
+
   // 모드 전환은 항상 동작
   switch (e.key.toLowerCase()) {
     case "b":
@@ -300,6 +310,15 @@ claudeInput?.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && btnClaude && !btnClaude.disabled) {
     e.preventDefault();
     btnClaude.click();
+  }
+});
+// 입력 포커스 중엔 SparkControls WASD/QE 이동을 비활성 (mode=camera 일 때만 원복)
+claudeInput?.addEventListener("focus", () => {
+  controls.fpsMovement.enable = false;
+});
+claudeInput?.addEventListener("blur", () => {
+  if (currentMode === "camera") {
+    controls.fpsMovement.enable = true;
   }
 });
 btnClaude?.addEventListener("click", () =>
