@@ -73,6 +73,7 @@ function setMode(mode) {
       renderer.domElement.style.cursor = "crosshair";
       break;
     case "move":
+    case "anchor":
       renderer.domElement.style.cursor = "grab";
       break;
   }
@@ -100,6 +101,9 @@ window.addEventListener("keydown", (e) => {
     case "v":
       if (currentMode !== "move") setMode("move");
       return;
+    case "x":
+      if (currentMode !== "anchor") setMode("anchor");
+      return;
     case "escape":
       setMode("camera");
       return;
@@ -118,6 +122,7 @@ const modeButtons = {
   camera: document.getElementById("btn-camera"),
   select: document.getElementById("btn-select"),
   move: document.getElementById("btn-move"),
+  anchor: document.getElementById("btn-anchor"),
 };
 
 function updateModeUI() {
@@ -128,7 +133,8 @@ function updateModeUI() {
   document.getElementById("mode-hint").textContent = {
     camera: "WASD 이동 | 마우스 시점 변경",
     select: "드래그로 BOX 영역 크기 지정 | ESC 취소",
-    move: "BOX 드래그로 이동 | Shift+드래그 높이 조절 | ESC 취소",
+    move: "BOX 드래그로 내부 객체 이동 | Shift+드래그 높이 조절 | ESC 취소",
+    anchor: "BOX 드래그로 박스 자체 재배치 | Shift+드래그 높이 조절 | ESC 취소",
   }[currentMode];
 }
 
@@ -257,6 +263,7 @@ document.getElementById("btn-delete")?.addEventListener("click", () => {
 document.getElementById("btn-camera")?.addEventListener("click", () => setMode("camera"));
 document.getElementById("btn-select")?.addEventListener("click", () => setMode("select"));
 document.getElementById("btn-move")?.addEventListener("click", () => setMode("move"));
+document.getElementById("btn-anchor")?.addEventListener("click", () => setMode("anchor"));
 
 // ─── Claude 물체 감지 ────────────────────────────────────
 const claudeInput = document.getElementById("claude-target");

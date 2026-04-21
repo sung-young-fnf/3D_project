@@ -79,6 +79,16 @@ class BoxRegion {
     this.hitbox.scale.copy(size);
   }
 
+  // 박스 원점(originPosition) 변경 — X 드래그에서 호출.
+  // displacement/scaleFactor 는 유지, SDF·wireframe·hitbox 는 origin+displacement 로 재배치.
+  setOrigin(newOrigin) {
+    this.originPosition.copy(newOrigin);
+    const worldPos = newOrigin.clone().add(this.displacement);
+    this.sdf.position.copy(worldPos);
+    this.wireframe.position.copy(worldPos);
+    this.hitbox.position.copy(worldPos);
+  }
+
   remove(scene) {
     scene.remove(this.wireframe);
     scene.remove(this.hitbox);
@@ -176,6 +186,12 @@ export class VmdEditor {
     this.drawPlane = new THREE.Plane();
     this.drawingBox = null; // 드래그 중 미리보기 박스
     this.defaultHeight = 0.5; // 박스 기본 높이
+
+    // X(anchor) 드래그 상태 — 박스 원점 이동
+    this.isAnchorDragging = false;
+    this.anchorPlane = new THREE.Plane();
+    this.anchorDragStart = new THREE.Vector3();
+    this.anchorBaseOrigin = new THREE.Vector3();
 
     // 이벤트 바인딩
     const el = renderer.domElement;
@@ -347,6 +363,27 @@ export class VmdEditor {
 
     const ndc = this.getNDC(e);
 
+    // X 모드: 박스 hitbox 클릭으로 드래그 시작 → 박스 원점 이동
+    if (this.mode === "anchor") {
+      const box = this.hitBox(ndc);
+      if (box) {
+        this.selectBox(box);
+        this.isAnchorDragging = true;
+
+        const boxPos = box.originPosition.clone().add(box.displacement);
+        this.anchorPlane.set(new THREE.Vector3(0, 1, 0), -boxPos.y);
+
+        this.raycaster.setFromCamera(ndc, this.camera);
+        const inter = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(this.anchorPlane, inter);
+        this.anchorDragStart.copy(inter);
+        this.anchorBaseOrigin.copy(box.originPosition);
+
+        this.renderer.domElement.style.cursor = "grabbing";
+      }
+      return;
+    }
+
     if (this.mode === "select") {
       const point = this.hitSplat(ndc);
       if (point) {
@@ -398,6 +435,42 @@ export class VmdEditor {
   onPointerMove(e) {
     const ndc = this.getNDC(e);
     this.raycaster.setFromCamera(ndc, this.camera);
+
+    // ─── X(anchor) 모드: 드래그로 박스 원점 이동 ─────────
+    if (this.isAnchorDragging && this.activeBox) {
+      if (e.shiftKey) {
+        const inter = new THREE.Vector3();
+        const vertPlane = new THREE.Plane();
+        const camDir = new THREE.Vector3();
+        this.camera.getWorldDirection(camDir);
+        camDir.y = 0;
+        camDir.normalize();
+        vertPlane.setFromNormalAndCoplanarPoint(
+          camDir,
+          this.activeBox.originPosition.clone().add(this.activeBox.displacement)
+        );
+        if (this.raycaster.ray.intersectPlane(vertPlane, inter)) {
+          const delta = inter.clone().sub(this.anchorDragStart);
+          const newOrigin = this.anchorBaseOrigin.clone();
+          newOrigin.y += delta.y;
+          this.activeBox.setOrigin(newOrigin);
+          this._syncScaleUniforms();
+          this.splatMesh.updateVersion();
+        }
+      } else {
+        const inter = new THREE.Vector3();
+        if (this.raycaster.ray.intersectPlane(this.anchorPlane, inter)) {
+          const delta = inter.clone().sub(this.anchorDragStart);
+          const newOrigin = this.anchorBaseOrigin.clone();
+          newOrigin.x += delta.x;
+          newOrigin.z += delta.z;
+          this.activeBox.setOrigin(newOrigin);
+          this._syncScaleUniforms();
+          this.splatMesh.updateVersion();
+        }
+      }
+      return;
+    }
 
     // ─── 선택 모드: 드래그로 박스 크기 미리보기 ──────────
     if (this.isDrawing && this.drawingBox) {
@@ -462,6 +535,15 @@ export class VmdEditor {
   }
 
   onPointerUp() {
+    // ─── X(anchor) 모드: 드래그 끝 ───────────────────────
+    if (this.isAnchorDragging) {
+      this.isAnchorDragging = false;
+      if (this.mode === "anchor") {
+        this.renderer.domElement.style.cursor = "grab";
+      }
+      return;
+    }
+
     // ─── 선택 모드: 드래그 끝 → 박스 확정 ────────────────
     if (this.isDrawing && this.drawingBox) {
       const scale = this.drawingBox.scale;
