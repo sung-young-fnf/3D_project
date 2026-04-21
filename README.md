@@ -34,7 +34,7 @@ AWS_BEARER_TOKEN_BEDROCK=<발급받은 토큰>
 AWS_REGION=us-west-2
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
 
-# Gemini 2.5 Flash Image (🎨 보정용)
+# Gemini 3.1 Flash Image (🎨 보정용)
 # https://aistudio.google.com/apikey
 GEMINI_API_KEY=<발급받은 키>
 GEMINI_MODEL_ID=gemini-2.5-flash-image-preview
