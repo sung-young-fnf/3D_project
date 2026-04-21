@@ -145,7 +145,8 @@ export class VmdEditor {
     return this.wireframesVisible;
   }
 
-  createBox(position, size) {
+  createBox(position, size, opts = {}) {
+    const { activate = true } = opts;
     this.boxCount++;
     const name = `영역 ${this.boxCount}`;
     const box = new BoxRegion(
@@ -157,9 +158,56 @@ export class VmdEditor {
     );
     box.wireframe.visible = this.wireframesVisible;
     this.boxes.push(box);
-    this.selectBox(box);
+    if (activate) this.selectBox(box);
     this.splatMesh.updateVersion();
     return box;
+  }
+
+  // 스크린 정규화 bbox([x1,y1,x2,y2], 0~1, 원점 좌상단) → 3D BoxRegion
+  // 4꼭짓점 + 중심 총 5점을 raycast → splatMesh 교점으로 중심/크기 추정
+  createBoxFromScreenBBox(bbox) {
+    if (!Array.isArray(bbox) || bbox.length !== 4) return null;
+    const [x1, y1, x2, y2] = bbox;
+
+    const samples = [
+      [x1, y1],
+      [x2, y1],
+      [x1, y2],
+      [x2, y2],
+      [(x1 + x2) / 2, (y1 + y2) / 2],
+    ];
+
+    const points = [];
+    for (const [u, v] of samples) {
+      const ndc = new THREE.Vector2(u * 2 - 1, -(v * 2 - 1));
+      const p = this.hitSplat(ndc);
+      if (p) points.push(p);
+    }
+
+    if (points.length === 0) return null;
+
+    let center;
+    let size;
+    if (points.length === 1) {
+      center = points[0].clone();
+      size = this.defaultSize.clone();
+    } else {
+      const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+      const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+      for (const p of points) {
+        min.min(p);
+        max.max(p);
+      }
+      center = min.clone().add(max).multiplyScalar(0.5);
+      const pad = 1.1;
+      size = new THREE.Vector3(
+        Math.max((max.x - min.x) * pad, 0.1),
+        Math.max((max.y - min.y) * pad, 0.3),
+        Math.max((max.z - min.z) * pad, 0.1)
+      );
+    }
+
+    return this.createBox(center, size, { activate: false });
   }
 
   selectBox(box) {

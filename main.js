@@ -201,6 +201,112 @@ document.getElementById("btn-camera")?.addEventListener("click", () => setMode("
 document.getElementById("btn-select")?.addEventListener("click", () => setMode("select"));
 document.getElementById("btn-move")?.addEventListener("click", () => setMode("move"));
 
+// ─── Claude 물체 감지 ────────────────────────────────────
+const claudeInput = document.getElementById("claude-target");
+const btnClaude = document.getElementById("btn-claude");
+const btnClaudeAll = document.getElementById("btn-claude-all");
+const claudeStatus = document.getElementById("claude-status");
+
+function setClaudeStatus(cls, text) {
+  if (!claudeStatus) return;
+  claudeStatus.className = cls;
+  claudeStatus.textContent = text;
+}
+
+function updateClaudeButton() {
+  if (!btnClaude || !claudeInput) return;
+  btnClaude.disabled = !claudeInput.value.trim();
+}
+
+async function captureCanvas() {
+  // preserveDrawingBuffer=false 이므로 즉시 한 프레임 강제 렌더 후 복사
+  renderer.render(scene, camera);
+  const src = renderer.domElement;
+  const maxDim = 1600;
+  const scale = Math.min(1, maxDim / Math.max(src.width, src.height));
+  const dw = Math.round(src.width * scale);
+  const dh = Math.round(src.height * scale);
+  const off = document.createElement("canvas");
+  off.width = dw;
+  off.height = dh;
+  off.getContext("2d").drawImage(src, 0, 0, dw, dh);
+  const blob = await new Promise((r) => off.toBlob(r, "image/jpeg", 0.85));
+  if (!blob) throw new Error("캔버스 캡처 실패");
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("base64 인코딩 실패"));
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.split(",")[1];
+}
+
+async function callClaudeDetect(target, mode) {
+  if (!editor) {
+    setClaudeStatus("error", "아직 splat 로딩 중...");
+    return;
+  }
+  const targetValue = (target ?? "").trim();
+  if (mode === "target" && !targetValue) return;
+
+  setClaudeStatus("loading", "분석 중...");
+  if (btnClaude) btnClaude.disabled = true;
+  if (btnClaudeAll) btnClaudeAll.disabled = true;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+  try {
+    const image_base64 = await captureCanvas();
+    const resp = await fetch("/api/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_base64,
+        mode,
+        target: targetValue || undefined,
+      }),
+      signal: controller.signal,
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    const dets = data.detections ?? [];
+    let created = 0;
+    for (const d of dets) {
+      const box = editor.createBoxFromScreenBBox(d.bbox);
+      if (box) {
+        if (d.label) box.name = `${box.name} · ${d.label}`;
+        created++;
+      }
+    }
+    setClaudeStatus("ok", `감지 ${dets.length}건 → 박스 ${created}개 생성`);
+    updateUI();
+  } catch (err) {
+    if (err.name === "AbortError") {
+      setClaudeStatus("error", "시간 초과 (35초)");
+    } else {
+      setClaudeStatus("error", `에러: ${err.message}`);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    if (btnClaudeAll) btnClaudeAll.disabled = false;
+    updateClaudeButton();
+  }
+}
+
+claudeInput?.addEventListener("input", updateClaudeButton);
+claudeInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && btnClaude && !btnClaude.disabled) {
+    e.preventDefault();
+    btnClaude.click();
+  }
+});
+btnClaude?.addEventListener("click", () =>
+  callClaudeDetect(claudeInput?.value, "target")
+);
+btnClaudeAll?.addEventListener("click", () => callClaudeDetect(null, "all"));
+
 // ─── 포인터 이벤트 후처리 (UI 갱신) ─────────────────────
 renderer.domElement.addEventListener("pointerup", () => {
   setTimeout(() => updateUI(), 0);

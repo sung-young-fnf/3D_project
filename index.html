@@ -91,6 +91,44 @@
       color: #f66; border-radius: 4px; cursor: pointer; font-size: 0.75rem;
     }
     #btn-delete:hover { background: rgba(255,60,60,0.3); }
+
+    /* 우하단 Claude 패널 */
+    #claude-panel {
+      position: fixed; bottom: 1.5rem; right: 1rem; width: 260px; z-index: 10;
+      background: rgba(0,0,0,0.75); border-radius: 8px;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.08);
+      padding: 0.6rem; font-size: 0.78rem;
+    }
+    #claude-panel h3 {
+      font-size: 0.72rem; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem;
+    }
+    #claude-target {
+      width: 100%; padding: 0.35rem 0.5rem; margin-bottom: 0.4rem;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+      color: #fff; border-radius: 4px; font-size: 0.78rem; outline: none;
+      font-family: inherit;
+    }
+    #claude-target:focus { border-color: #0af; }
+    #claude-target::placeholder { color: #666; }
+    .claude-buttons { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .claude-buttons button {
+      flex: 1; padding: 0.4rem 0.5rem;
+      background: rgba(0,180,255,0.15); border: 1px solid rgba(0,180,255,0.3);
+      color: #0cf; border-radius: 4px; cursor: pointer;
+      font-size: 0.75rem; transition: all 0.15s;
+    }
+    .claude-buttons button:hover:not(:disabled) {
+      background: rgba(0,180,255,0.3); color: #fff;
+    }
+    .claude-buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #claude-status {
+      color: #888; font-size: 0.7rem; min-height: 1em;
+      letter-spacing: 0.02em;
+    }
+    #claude-status.loading { color: #0af; }
+    #claude-status.error { color: #f66; }
+    #claude-status.ok { color: #6c6; }
   </style>
 </head>
 <body>
@@ -142,6 +180,17 @@
 
   <!-- 하단 힌트 -->
   <div id="mode-hint">WASD 이동 | 마우스 시점 변경</div>
+
+  <!-- 우하단 Claude 패널 -->
+  <div id="claude-panel">
+    <h3>Claude 물체 감지</h3>
+    <input id="claude-target" type="text" placeholder="찾을 물건 (예: 종이컵)" autocomplete="off" />
+    <div class="claude-buttons">
+      <button id="btn-claude" disabled>🔍 Claude</button>
+      <button id="btn-claude-all">전체</button>
+    </div>
+    <div id="claude-status">idle</div>
+  </div>
 
   <script type="importmap">
     {

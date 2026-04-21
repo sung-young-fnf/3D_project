@@ -70,7 +70,7 @@ function claudeDetectPlugin() {
             : `이미지에 보이는 모든 구별 가능한 개별 물체를 찾아 각각 bbox를 반환하라.`;
 
           const bedrockCall = client.messages.create({
-            model: process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6",
+            model: process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-opus-4-7",
             max_tokens: 1024,
             system: [{ type: "text", text: SYSTEM_PROMPT }],
             messages: [{
