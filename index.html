@@ -153,9 +153,12 @@
     }
     #claude-target:focus { border-color: #0af; }
     #claude-target::placeholder { color: #666; }
-    .claude-buttons { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .claude-buttons {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.4rem; margin-bottom: 0.4rem;
+    }
     .claude-buttons button {
-      flex: 1; padding: 0.4rem 0.5rem;
+      padding: 0.4rem 0.5rem;
       background: rgba(0,180,255,0.15); border: 1px solid rgba(0,180,255,0.3);
       color: #0cf; border-radius: 4px; cursor: pointer;
       font-size: 0.75rem; transition: all 0.15s;
@@ -164,6 +167,60 @@
       background: rgba(0,180,255,0.3); color: #fff;
     }
     .claude-buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #btn-claude-enhance {
+      grid-column: 1 / -1;
+      background: rgba(180,120,255,0.18);
+      border-color: rgba(180,120,255,0.4);
+      color: #caf;
+    }
+    #btn-claude-enhance:hover:not(:disabled) {
+      background: rgba(180,120,255,0.32); color: #fff;
+    }
+
+    /* 보정 결과 모달 */
+    #enhance-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+    #enhance-modal.hidden { display: none; }
+    .enhance-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.88); }
+    .enhance-content {
+      position: relative; z-index: 1;
+      max-width: 92vw; max-height: 92vh;
+      display: flex; flex-direction: column; gap: 0.7rem;
+      padding: 1rem 1rem 0.8rem;
+      background: rgba(18,18,22,0.97);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    }
+    .enhance-close {
+      position: absolute; top: 0.4rem; right: 0.6rem;
+      background: transparent; border: none;
+      color: #888; font-size: 1.5rem; line-height: 1;
+      cursor: pointer; padding: 0.3rem;
+    }
+    .enhance-close:hover { color: #fff; }
+    #enhance-img {
+      max-width: 100%; max-height: 72vh;
+      object-fit: contain; border-radius: 4px;
+      background: #000;
+    }
+    .enhance-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.8rem; font-size: 0.78rem; color: #888;
+    }
+    #enhance-info { letter-spacing: 0.02em; }
+    #enhance-info.error { color: #f66; }
+    .enhance-actions { display: flex; gap: 0.5rem; }
+    .enhance-actions button {
+      padding: 0.4rem 0.9rem;
+      background: rgba(0,180,255,0.15); border: 1px solid rgba(0,180,255,0.3);
+      color: #0cf; border-radius: 4px; cursor: pointer;
+      font-size: 0.78rem; transition: all 0.15s;
+    }
+    .enhance-actions button:hover:not(:disabled) {
+      background: rgba(0,180,255,0.3); color: #fff;
+    }
+    .enhance-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .enhance-actions button.active { background: rgba(0,180,255,0.4); color: #fff; }
     #claude-status {
       color: #888; font-size: 0.7rem; min-height: 1em;
       letter-spacing: 0.02em;
@@ -261,8 +318,25 @@
       <button id="btn-claude" disabled>🔍 Claude</button>
       <button id="btn-claude-all">전체</button>
       <button id="btn-claude-cmd" disabled>💬 명령</button>
+      <button id="btn-claude-enhance">🎨 보정</button>
     </div>
     <div id="claude-status">idle</div>
+  </div>
+
+  <!-- 보정 결과 모달 -->
+  <div id="enhance-modal" class="hidden">
+    <div class="enhance-backdrop"></div>
+    <div class="enhance-content">
+      <button class="enhance-close" aria-label="close">×</button>
+      <img id="enhance-img" alt="보정 결과" />
+      <div class="enhance-meta">
+        <span id="enhance-info">idle</span>
+        <div class="enhance-actions">
+          <button id="btn-enhance-compare" disabled>원본 비교</button>
+          <button id="btn-enhance-save" disabled>💾 저장</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="importmap">

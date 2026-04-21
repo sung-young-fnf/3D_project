@@ -100,6 +100,15 @@ function isTypingInInput() {
 }
 
 window.addEventListener("keydown", (e) => {
+  // 보정 모달 열려있으면 최우선 처리 (ESC 만)
+  const modal = document.getElementById("enhance-modal");
+  if (modal && !modal.classList.contains("hidden")) {
+    if (e.key === "Escape") {
+      closeEnhanceModal();
+      e.preventDefault();
+    }
+    return;
+  }
   // 입력 필드 포커스 중엔 단축키(B/V/ESC/Delete)·mode switch 무시
   if (isTypingInInput()) return;
 
@@ -497,6 +506,135 @@ btnClaude?.addEventListener("click", () =>
 );
 btnClaudeAll?.addEventListener("click", () => callClaudeDetect(null, "all"));
 btnClaudeCmd?.addEventListener("click", () => callClaudeCommand(claudeInput?.value));
+
+// ─── 🎨 보정 (Gemini 이미지 향상) ───────────────────────
+const btnClaudeEnhance = document.getElementById("btn-claude-enhance");
+const enhanceModal = document.getElementById("enhance-modal");
+const enhanceImg = document.getElementById("enhance-img");
+const enhanceInfo = document.getElementById("enhance-info");
+const btnEnhanceCompare = document.getElementById("btn-enhance-compare");
+const btnEnhanceSave = document.getElementById("btn-enhance-save");
+
+let enhanceState = {
+  originalDataUrl: null,
+  enhancedDataUrl: null,
+  filename: null,
+  showingOriginal: false,
+};
+
+function openEnhanceModal({ originalDataUrl, enhancedDataUrl, info, filename, isError }) {
+  enhanceState = {
+    originalDataUrl: originalDataUrl ?? null,
+    enhancedDataUrl: enhancedDataUrl ?? null,
+    filename: filename ?? null,
+    showingOriginal: false,
+  };
+  enhanceImg.src = enhancedDataUrl || originalDataUrl || "";
+  enhanceInfo.textContent = info ?? "";
+  enhanceInfo.className = isError ? "error" : "";
+  btnEnhanceCompare.disabled = !enhancedDataUrl || !originalDataUrl;
+  btnEnhanceCompare.classList.remove("active");
+  btnEnhanceCompare.textContent = "원본 비교";
+  btnEnhanceSave.disabled = !enhancedDataUrl;
+  enhanceModal.classList.remove("hidden");
+}
+
+function closeEnhanceModal() {
+  enhanceModal.classList.add("hidden");
+  enhanceImg.src = "";
+  enhanceState = { originalDataUrl: null, enhancedDataUrl: null, filename: null, showingOriginal: false };
+}
+
+document.querySelector(".enhance-close")?.addEventListener("click", closeEnhanceModal);
+document.querySelector(".enhance-backdrop")?.addEventListener("click", closeEnhanceModal);
+
+btnEnhanceCompare?.addEventListener("click", () => {
+  if (!enhanceState.originalDataUrl || !enhanceState.enhancedDataUrl) return;
+  enhanceState.showingOriginal = !enhanceState.showingOriginal;
+  enhanceImg.src = enhanceState.showingOriginal
+    ? enhanceState.originalDataUrl
+    : enhanceState.enhancedDataUrl;
+  btnEnhanceCompare.classList.toggle("active", enhanceState.showingOriginal);
+  btnEnhanceCompare.textContent = enhanceState.showingOriginal ? "보정본 보기" : "원본 비교";
+});
+
+btnEnhanceSave?.addEventListener("click", () => {
+  const url = enhanceState.showingOriginal
+    ? enhanceState.originalDataUrl
+    : enhanceState.enhancedDataUrl;
+  if (!url || !enhanceState.filename) return;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = enhanceState.showingOriginal
+    ? enhanceState.filename.replace(/-enhanced\.(png|jpg)$/, ".jpg")
+    : enhanceState.filename;
+  a.click();
+});
+
+async function callEnhance(context = "") {
+  if (!editor) {
+    setClaudeStatus("error", "아직 splat 로딩 중...");
+    return;
+  }
+
+  setClaudeStatus("loading", "보정 중...");
+  if (btnClaude) btnClaude.disabled = true;
+  if (btnClaudeAll) btnClaudeAll.disabled = true;
+  if (btnClaudeCmd) btnClaudeCmd.disabled = true;
+  if (btnClaudeEnhance) btnClaudeEnhance.disabled = true;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const startTime = performance.now();
+  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
+
+  let originalBase64 = null;
+  try {
+    originalBase64 = await captureCanvas();
+    const resp = await fetch("/api/enhance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_base64: originalBase64, context }),
+      signal: controller.signal,
+    });
+    const data = await resp.json();
+    const elapsed = fmtElapsed();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    const mime = data.enhanced_mime || "image/png";
+    const ext = mime.includes("png") ? "png" : "jpg";
+    openEnhanceModal({
+      originalDataUrl: `data:image/jpeg;base64,${originalBase64}`,
+      enhancedDataUrl: `data:${mime};base64,${data.enhanced_base64}`,
+      info: `${data.capture_id} · ${elapsed}s`,
+      filename: `${data.capture_id}-enhanced.${ext}`,
+    });
+    setClaudeStatus("ok", `보정 완료 (${elapsed}s)`);
+  } catch (err) {
+    const elapsed = fmtElapsed();
+    const msg =
+      err.name === "AbortError"
+        ? `시간 초과 (${elapsed}s)`
+        : `에러: ${err.message} (${elapsed}s)`;
+    setClaudeStatus("error", msg);
+    if (originalBase64) {
+      openEnhanceModal({
+        originalDataUrl: `data:image/jpeg;base64,${originalBase64}`,
+        enhancedDataUrl: null,
+        info: msg,
+        filename: null,
+        isError: true,
+      });
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    if (btnClaudeAll) btnClaudeAll.disabled = false;
+    if (btnClaudeEnhance) btnClaudeEnhance.disabled = false;
+    updateClaudeButton();
+  }
+}
+
+btnClaudeEnhance?.addEventListener("click", () => callEnhance());
 
 // ─── 포인터 이벤트 후처리 (UI 갱신) ─────────────────────
 renderer.domElement.addEventListener("pointerup", () => {
