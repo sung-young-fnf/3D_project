@@ -92,6 +92,23 @@
     }
     #btn-delete:hover { background: rgba(255,60,60,0.3); }
 
+    /* 속성 탭 */
+    .prop-tabs {
+      display: flex; gap: 0.2rem; margin-bottom: 0.5rem;
+      padding-bottom: 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .prop-tab {
+      flex: 1; padding: 0.3rem 0.4rem;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: #888; border-radius: 4px; cursor: pointer;
+      font-size: 0.7rem; transition: all 0.15s;
+    }
+    .prop-tab:hover { background: rgba(255,255,255,0.1); color: #ccc; }
+    .prop-tab.active {
+      background: rgba(0,180,255,0.2); border-color: #0af; color: #fff;
+    }
+    .prop-tab-content.hidden { display: none; }
+
     /* 우하단 Claude 패널 */
     #claude-panel {
       position: fixed; bottom: 1.5rem; right: 1rem; width: 260px; z-index: 10;
@@ -157,22 +174,50 @@
   <div id="property-panel" class="hidden">
     <h3>속성</h3>
     <div id="prop-name"></div>
-    <div style="color:#666; font-size:0.68rem; margin-bottom:0.3rem;">크기</div>
-    <div class="prop-row">
-      <label>X</label>
-      <input type="range" id="size-x" min="0.1" max="3.0" step="0.05" value="0.5" />
-      <span class="val" id="val-x">0.50</span>
+
+    <div class="prop-tabs">
+      <button class="prop-tab active" data-tab="region">영역 크기</button>
+      <button class="prop-tab" data-tab="scale">객체 스케일</button>
     </div>
-    <div class="prop-row">
-      <label>Y</label>
-      <input type="range" id="size-y" min="0.1" max="3.0" step="0.05" value="0.5" />
-      <span class="val" id="val-y">0.50</span>
+
+    <!-- 탭1: 박스 영역 크기 (splat 불변) -->
+    <div class="prop-tab-content" data-content="region">
+      <div class="prop-row">
+        <label>X</label>
+        <input type="range" id="size-x" min="0.1" max="3.0" step="0.05" value="0.5" />
+        <span class="val" id="val-x">0.50</span>
+      </div>
+      <div class="prop-row">
+        <label>Y</label>
+        <input type="range" id="size-y" min="0.1" max="3.0" step="0.05" value="0.5" />
+        <span class="val" id="val-y">0.50</span>
+      </div>
+      <div class="prop-row">
+        <label>Z</label>
+        <input type="range" id="size-z" min="0.1" max="3.0" step="0.05" value="0.5" />
+        <span class="val" id="val-z">0.50</span>
+      </div>
     </div>
-    <div class="prop-row">
-      <label>Z</label>
-      <input type="range" id="size-z" min="0.1" max="3.0" step="0.05" value="0.5" />
-      <span class="val" id="val-z">0.50</span>
+
+    <!-- 탭2: 내부 splat 스케일 배율 -->
+    <div class="prop-tab-content hidden" data-content="scale">
+      <div class="prop-row">
+        <label>X</label>
+        <input type="range" id="scale-x" min="0.1" max="5.0" step="0.05" value="1.0" />
+        <span class="val" id="val-scale-x">1.00</span>
+      </div>
+      <div class="prop-row">
+        <label>Y</label>
+        <input type="range" id="scale-y" min="0.1" max="5.0" step="0.05" value="1.0" />
+        <span class="val" id="val-scale-y">1.00</span>
+      </div>
+      <div class="prop-row">
+        <label>Z</label>
+        <input type="range" id="scale-z" min="0.1" max="5.0" step="0.05" value="1.0" />
+        <span class="val" id="val-scale-z">1.00</span>
+      </div>
     </div>
+
     <div style="color:#666; font-size:0.68rem; margin-top:0.5rem;">이동량</div>
     <div id="disp-value">X: 0.00  Y: 0.00  Z: 0.00</div>
     <button id="btn-delete">삭제 (Delete)</button>

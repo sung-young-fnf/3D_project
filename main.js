@@ -162,6 +162,21 @@ const sizeInputs = {
   y: document.getElementById("size-y"),
   z: document.getElementById("size-z"),
 };
+const sizeVals = {
+  x: document.getElementById("val-x"),
+  y: document.getElementById("val-y"),
+  z: document.getElementById("val-z"),
+};
+const scaleInputs = {
+  x: document.getElementById("scale-x"),
+  y: document.getElementById("scale-y"),
+  z: document.getElementById("scale-z"),
+};
+const scaleVals = {
+  x: document.getElementById("val-scale-x"),
+  y: document.getElementById("val-scale-y"),
+  z: document.getElementById("val-scale-z"),
+};
 
 function updatePropertyPanel() {
   const panel = document.getElementById("property-panel");
@@ -176,16 +191,22 @@ function updatePropertyPanel() {
   const box = editor.activeBox;
   document.getElementById("prop-name").textContent = box.name;
 
-  if (sizeInputs.x) sizeInputs.x.value = box.size.x.toFixed(2);
-  if (sizeInputs.y) sizeInputs.y.value = box.size.y.toFixed(2);
-  if (sizeInputs.z) sizeInputs.z.value = box.size.z.toFixed(2);
+  ["x", "y", "z"].forEach((axis) => {
+    const sizeStr = box.size[axis].toFixed(2);
+    if (sizeInputs[axis]) sizeInputs[axis].value = sizeStr;
+    if (sizeVals[axis]) sizeVals[axis].textContent = sizeStr;
+
+    const scaleStr = box.scaleFactor[axis].toFixed(2);
+    if (scaleInputs[axis]) scaleInputs[axis].value = scaleStr;
+    if (scaleVals[axis]) scaleVals[axis].textContent = scaleStr;
+  });
 
   const disp = box.displacement;
   document.getElementById("disp-value").textContent =
     `X: ${disp.x.toFixed(2)}  Y: ${disp.y.toFixed(2)}  Z: ${disp.z.toFixed(2)}`;
 }
 
-// 크기 입력 이벤트
+// 탭1: 영역 크기 슬라이더
 ["x", "y", "z"].forEach((axis) => {
   const input = sizeInputs[axis];
   if (!input) return;
@@ -193,8 +214,34 @@ function updatePropertyPanel() {
     const val = parseFloat(input.value);
     if (!isNaN(val) && val > 0 && editor) {
       editor.updateActiveBoxSize(axis, val);
-      updatePropertyPanel();
+      if (sizeVals[axis]) sizeVals[axis].textContent = val.toFixed(2);
     }
+  });
+});
+
+// 탭2: 객체 스케일 슬라이더
+["x", "y", "z"].forEach((axis) => {
+  const input = scaleInputs[axis];
+  if (!input) return;
+  input.addEventListener("input", () => {
+    const val = parseFloat(input.value);
+    if (!isNaN(val) && val > 0 && editor) {
+      editor.updateActiveBoxScale(axis, val);
+      if (scaleVals[axis]) scaleVals[axis].textContent = val.toFixed(2);
+    }
+  });
+});
+
+// 탭 전환
+document.querySelectorAll(".prop-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const target = tab.dataset.tab;
+    document.querySelectorAll(".prop-tab").forEach((t) =>
+      t.classList.toggle("active", t === tab)
+    );
+    document.querySelectorAll(".prop-tab-content").forEach((c) => {
+      c.classList.toggle("hidden", c.dataset.content !== target);
+    });
   });
 });
 

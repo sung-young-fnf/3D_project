@@ -11,9 +11,10 @@ class BoxRegion {
   constructor(name, position, size, sharedEdit, scene) {
     this.name = name;
     this.size = size.clone();
-    this.originalSize = size.clone(); // 생성 시점 크기 — splat 스케일 기준
+    this.originalSize = size.clone(); // 고정 AABB (splat 스케일 판정 범위)
     this.originPosition = position.clone();
     this.displacement = new THREE.Vector3(0, 0, 0);
+    this.scaleFactor = new THREE.Vector3(1, 1, 1); // 객체 스케일 배율
     this.sharedEdit = sharedEdit;
 
     // SplatEditSdf만 생성 → 공용 SplatEdit에 추가
@@ -280,15 +281,23 @@ export class VmdEditor {
     }
   }
 
+  // 탭1: 영역(박스) 크기 — wireframe/SDF/hitbox 만 변경, splat 불변
   updateActiveBoxSize(axis, value) {
     if (!this.activeBox) return;
     this.activeBox.size[axis] = value;
     this.activeBox.updateSize(this.activeBox.size);
+    this.splatMesh.updateVersion();
+  }
+
+  // 탭2: 객체 스케일 배율 — 셰이더 uniform 갱신, 내부 splat 변형
+  updateActiveBoxScale(axis, value) {
+    if (!this.activeBox) return;
+    this.activeBox.scaleFactor[axis] = value;
     this._syncScaleUniforms();
     this.splatMesh.updateVersion();
   }
 
-  // 활성 박스의 원본 AABB와 scale factor를 dyno uniform에 반영
+  // 활성 박스의 AABB 판정 범위 + scaleFactor 를 dyno uniform에 반영
   _syncScaleUniforms() {
     const box = this.activeBox;
     if (!box) {
@@ -302,11 +311,7 @@ export class VmdEditor {
       box.originalSize.y * 0.5,
       box.originalSize.z * 0.5
     );
-    this.scaleUniforms.scale.value.set(
-      box.size.x / box.originalSize.x,
-      box.size.y / box.originalSize.y,
-      box.size.z / box.originalSize.z
-    );
+    this.scaleUniforms.scale.value.copy(box.scaleFactor);
   }
 
   // ─── 유틸리티 ─────────────────────────────────────────────
