@@ -269,6 +269,7 @@ document.getElementById("btn-anchor")?.addEventListener("click", () => setMode("
 const claudeInput = document.getElementById("claude-target");
 const btnClaude = document.getElementById("btn-claude");
 const btnClaudeAll = document.getElementById("btn-claude-all");
+const btnClaudeCmd = document.getElementById("btn-claude-cmd");
 const claudeStatus = document.getElementById("claude-status");
 
 function setClaudeStatus(cls, text) {
@@ -278,8 +279,9 @@ function setClaudeStatus(cls, text) {
 }
 
 function updateClaudeButton() {
-  if (!btnClaude || !claudeInput) return;
-  btnClaude.disabled = !claudeInput.value.trim();
+  const hasText = !!claudeInput?.value.trim();
+  if (btnClaude) btnClaude.disabled = !hasText;
+  if (btnClaudeCmd) btnClaudeCmd.disabled = !hasText;
 }
 
 async function captureCanvas() {
@@ -373,6 +375,71 @@ claudeInput?.addEventListener("keydown", (e) => {
     btnClaude.click();
   }
 });
+
+// 자연어 명령 실행 (박스 swap 등)
+async function callClaudeCommand(text) {
+  if (!editor) {
+    setClaudeStatus("error", "아직 splat 로딩 중...");
+    return;
+  }
+  const t = (text ?? "").trim();
+  if (!t) return;
+
+  const boxes = editor.boxes.map((b) => ({ id: b.id, name: b.name }));
+  if (boxes.length < 2) {
+    setClaudeStatus("error", "박스가 2개 이상 필요합니다");
+    return;
+  }
+
+  setClaudeStatus("loading", "명령 해석 중...");
+  if (btnClaude) btnClaude.disabled = true;
+  if (btnClaudeAll) btnClaudeAll.disabled = true;
+  if (btnClaudeCmd) btnClaudeCmd.disabled = true;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+  const startTime = performance.now();
+  const fmtElapsed = () => ((performance.now() - startTime) / 1000).toFixed(1);
+
+  try {
+    const resp = await fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: t, boxes }),
+      signal: controller.signal,
+    });
+    const data = await resp.json();
+    const elapsed = fmtElapsed();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    if (data.action === "swap" && Array.isArray(data.targets) && data.targets.length === 2) {
+      const ok = editor.swapBoxesById(data.targets[0], data.targets[1]);
+      if (ok) {
+        const why = data.reason ? ` · ${data.reason}` : "";
+        setClaudeStatus("ok", `swap 완료 (${elapsed}s)${why}`);
+        updateUI();
+      } else {
+        setClaudeStatus("error", `swap 실패: 박스 id 불일치`);
+      }
+    } else {
+      setClaudeStatus(
+        "error",
+        data.reason ? `해석 실패: ${data.reason}` : "명령 해석 실패"
+      );
+    }
+  } catch (err) {
+    const elapsed = fmtElapsed();
+    if (err.name === "AbortError") {
+      setClaudeStatus("error", `시간 초과 (${elapsed}s)`);
+    } else {
+      setClaudeStatus("error", `에러: ${err.message} (${elapsed}s)`);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    if (btnClaudeAll) btnClaudeAll.disabled = false;
+    updateClaudeButton();
+  }
+}
 // 입력 포커스 중엔 SparkControls WASD/QE 이동을 비활성 (mode=camera 일 때만 원복)
 claudeInput?.addEventListener("focus", () => {
   controls.fpsMovement.enable = false;
@@ -386,6 +453,7 @@ btnClaude?.addEventListener("click", () =>
   callClaudeDetect(claudeInput?.value, "target")
 );
 btnClaudeAll?.addEventListener("click", () => callClaudeDetect(null, "all"));
+btnClaudeCmd?.addEventListener("click", () => callClaudeCommand(claudeInput?.value));
 
 // ─── 포인터 이벤트 후처리 (UI 갱신) ─────────────────────
 renderer.domElement.addEventListener("pointerup", () => {

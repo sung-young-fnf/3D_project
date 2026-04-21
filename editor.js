@@ -9,6 +9,7 @@ import {
 // ─── 단일 BOX 영역 ─────────────────────────────────────────
 class BoxRegion {
   constructor(name, position, size, sharedEdit, scene) {
+    this.id = null; // VmdEditor 가 createBox 에서 할당
     this.name = name;
     this.size = size.clone();
     this.originalSize = size.clone(); // 고정 AABB (splat 스케일 판정 범위)
@@ -224,11 +225,29 @@ export class VmdEditor {
       this.sharedEdit,
       this.scene
     );
+    box.id = this.boxCount;
     box.wireframe.visible = this.wireframesVisible;
     this.boxes.push(box);
     if (activate) this.selectBox(box);
     this.splatMesh.updateVersion();
     return box;
+  }
+
+  // 두 박스의 visual 위치를 서로 교환 (displacement 조정 — 원점/AABB 는 유지)
+  // visualA = originA + dispA, visualB = originB + dispB
+  // 교환 후: newDispA 가 visualB 를 가리키도록, newDispB 가 visualA 를 가리키도록
+  swapBoxesById(idA, idB) {
+    const a = this.boxes.find((b) => b.id === idA);
+    const b = this.boxes.find((b) => b.id === idB);
+    if (!a || !b || a === b) return false;
+    const visA = a.originPosition.clone().add(a.displacement);
+    const visB = b.originPosition.clone().add(b.displacement);
+    const newDispA = visB.clone().sub(a.originPosition);
+    const newDispB = visA.clone().sub(b.originPosition);
+    a.setDisplacement(newDispA);
+    b.setDisplacement(newDispB);
+    this.splatMesh.updateVersion();
+    return true;
   }
 
   // 스크린 정규화 bbox([x1,y1,x2,y2], 0~1, 원점 좌상단) → 3D BoxRegion
