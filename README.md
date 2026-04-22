@@ -32,7 +32,7 @@ cd ..
 # AWS Bedrock (Claude Vision / 자연어 명령)
 AWS_BEARER_TOKEN_BEDROCK=<발급받은 토큰>
 AWS_REGION=us-west-2
-BEDROCK_MODEL_ID=us.anthropic.claude-opus-4-7
+BEDROCK_MODEL_ID=us.anthropic.claude-opus-4-7 
 
 # Gemini 3.1 Flash Image (🎨 보정용)
 # https://aistudio.google.com/apikey
