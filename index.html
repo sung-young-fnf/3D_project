@@ -130,6 +130,25 @@
     }
     .mask-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
 
+    /* Phase 5 Step 1: Hide/Fill 섹션 */
+    .hide-section {
+      margin-top: 0.5rem; padding-top: 0.45rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .hide-row { margin-bottom: 0.3rem; }
+    .hide-chk {
+      display: flex; align-items: center; gap: 0.4rem;
+      color: #bbb; font-size: 0.72rem; cursor: pointer; user-select: none;
+    }
+    .hide-chk input[type="checkbox"] { accent-color: #0af; cursor: pointer; }
+    #btn-fill-resample {
+      margin-top: 0.3rem; width: 100%; padding: 0.3rem;
+      background: rgba(0,180,255,0.14); border: 1px solid rgba(0,180,255,0.3);
+      color: #0cf; border-radius: 4px; cursor: pointer;
+      font-size: 0.7rem; transition: all 0.15s;
+    }
+    #btn-fill-resample:hover { background: rgba(0,180,255,0.28); color: #fff; }
+
     /* 속성 탭 */
     .prop-tabs {
       display: flex; gap: 0.2rem; margin-bottom: 0.5rem;
@@ -345,6 +364,17 @@
         <button id="btn-mask-preview" title="저장된 마스크 미리보기" disabled>미리보기</button>
         <button id="btn-mask-clear" title="마스크 제거" disabled>제거</button>
       </div>
+    </div>
+
+    <!-- Phase 5 Step 1: 원위치 Fill (벽 색 채움) -->
+    <div class="hide-section">
+      <div class="hide-row">
+        <label class="hide-chk">
+          <input type="checkbox" id="chk-fill" checked />
+          <span>Fill (벽 색 채움)</span>
+        </label>
+      </div>
+      <button id="btn-fill-resample" title="현재 박스 주변 색 다시 샘플링">🔄 색 재샘플링</button>
     </div>
 
     <button id="btn-delete">삭제 (Delete)</button>

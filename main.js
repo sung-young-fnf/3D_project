@@ -362,6 +362,17 @@ document.getElementById("btn-mask-clear")?.addEventListener("click", () => {
   updateUI();
 });
 
+// Fill 토글 + 재샘플링
+document.getElementById("chk-fill")?.addEventListener("change", (e) => {
+  if (!editor) return;
+  editor.setFillEnabled(e.target.checked);
+});
+document.getElementById("btn-fill-resample")?.addEventListener("click", () => {
+  const box = editor?.activeBox;
+  if (!box) return;
+  editor.refreshFillColor(box);
+});
+
 document.getElementById("btn-mask-preview")?.addEventListener("click", () => {
   const box = editor?.activeBox;
   if (!box || !box.mask || !box.mask.image) return;
@@ -839,9 +850,21 @@ async function callEnhance(context = "") {
 
 btnClaudeEnhance?.addEventListener("click", () => callEnhance());
 
-// ─── 포인터 이벤트 후처리 (UI 갱신) ─────────────────────
+// ─── 포인터 이벤트 후처리 (UI 갱신 + Fill 색 샘플링) ────
 renderer.domElement.addEventListener("pointerup", () => {
-  setTimeout(() => updateUI(), 0);
+  setTimeout(() => {
+    updateUI();
+    // 활성 박스가 이동됐고 Fill 색 아직 샘플링 안 됐으면 자동 샘플링
+    const box = editor?.activeBox;
+    if (
+      box &&
+      editor.fillEnabledGlobal &&
+      box.displacement.lengthSq() > 0.0001 &&
+      !box.fillColorSampled
+    ) {
+      editor.refreshFillColor(box);
+    }
+  }, 0);
 });
 
 // ─── 렌더 루프 ───────────────────────────────────────────

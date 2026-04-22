@@ -72,6 +72,21 @@ class BoxRegion {
     this.hitbox.userData.boxRegion = this;
     scene.add(this.hitbox);
 
+    // Fill mesh — 박스 원위치에 배치되는 단색 상자. 이동 시 visible.
+    //   일반 3D 객체로 렌더 (depth 기본 동작). 박스 밖에서 보이도록 FrontSide.
+    this.fillMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xa0a080,
+        side: THREE.FrontSide,
+      })
+    );
+    this.fillMesh.position.copy(position);
+    this.fillMesh.scale.copy(size);
+    this.fillMesh.visible = false;
+    this.fillColorSampled = false;
+    scene.add(this.fillMesh);
+
     // CSS2D 라벨 — 박스 상단 왼쪽 모서리에 부착
     const labelDiv = document.createElement("div");
     labelDiv.className = "box-label";
@@ -106,6 +121,8 @@ class BoxRegion {
     const pos = this.originPosition.clone().add(d);
     this.wireframe.position.copy(pos);
     this.hitbox.position.copy(pos);
+    // fillMesh 는 "원위치" 에 머문다 (이동된 박스 자리 메우는 용도)
+    this.fillMesh.visible = d.lengthSq() > 0.0001 && !!this.fillEnabled;
     this._updateLabelPos();
   }
 
@@ -114,6 +131,8 @@ class BoxRegion {
     this.sdf.scale.copy(size);
     this.wireframe.scale.copy(size);
     this.hitbox.scale.copy(size);
+    // fillMesh 는 원점 기준이므로 updateSize 에서도 scale 동기화
+    this.fillMesh.scale.copy(size);
     this._updateLabelPos();
   }
 
@@ -125,7 +144,19 @@ class BoxRegion {
     this.sdf.position.copy(worldPos);
     this.wireframe.position.copy(worldPos);
     this.hitbox.position.copy(worldPos);
+    // fillMesh 는 새 원점에 머무름
+    this.fillMesh.position.copy(newOrigin);
     this._updateLabelPos();
+  }
+
+  setFillEnabled(on) {
+    this.fillEnabled = !!on;
+    this.fillMesh.visible = this.fillEnabled && this.displacement.lengthSq() > 0.0001;
+  }
+
+  setFillColor(hex) {
+    this.fillMesh.material.color.setHex(hex);
+    this.fillColorSampled = true;
   }
 
   // 이름 변경 — name 프로퍼티 + 라벨 텍스트 동기화
@@ -163,11 +194,14 @@ class BoxRegion {
     scene.remove(this.wireframe);
     scene.remove(this.hitbox);
     scene.remove(this.label);
+    scene.remove(this.fillMesh);
     this.sharedEdit.remove(this.sdf);
     this.wireframe.geometry.dispose();
     this.wireframe.material.dispose();
     this.hitbox.geometry.dispose();
     this.hitbox.material.dispose();
+    this.fillMesh.geometry.dispose();
+    this.fillMesh.material.dispose();
     if (this.label) this.label.element.remove();
     if (this.mask) this.mask.dispose();
   }
@@ -361,6 +395,7 @@ export class VmdEditor {
     this.boxCount = 0;
     this.defaultSize = new THREE.Vector3(0.5, 0.5, 0.5);
     this.wireframesVisible = true;
+    this.fillEnabledGlobal = true;  // 전역 Fill 토글 (기본 on)
 
     this.raycaster = new THREE.Raycaster();
 
@@ -413,6 +448,123 @@ export class VmdEditor {
     return v;
   }
 
+  // Hide 기능 제거됨 (no-op — 호환용)
+  setHideEnabled(_on) { /* no-op */ }
+
+  // 전역 Fill 토글 — 모든 박스 fillMesh visible on/off
+  setFillEnabled(on) {
+    this.fillEnabledGlobal = !!on;
+    this.boxes.forEach((b) => b.setFillEnabled(this.fillEnabledGlobal));
+  }
+
+  // 박스 주변 화면 픽셀 샘플링해 평균 배경 색 반환 (hex int).
+  //   박스 wireframe 의 스크린 bbox 를 구하고 그 바로 바깥(벽/바닥) 에서 픽셀 수집.
+  //   화면에 박스가 보여야 정확. 보이지 않으면 null.
+  //   ⚠️ 샘플링 중에는 모든 Fill Plane 숨기고 Hide 끄기 — 우리가 그려놓은 Plane 색이
+  //   다시 샘플링돼 피드백 루프가 생기는 걸 방지.
+  async sampleBoxBackground(box) {
+    // 모든 박스의 fillMesh 임시 숨김 — 기존 Plane 색이 다시 샘플에 섞이지 않도록
+    const prevFillVis = this.boxes.map((b) => b.fillMesh.visible);
+    this.boxes.forEach((b) => (b.fillMesh.visible = false));
+    this.splatMesh.updateVersion();
+
+    const restore = () => {
+      this.boxes.forEach((b, i) => (b.fillMesh.visible = prevFillVis[i]));
+      this.splatMesh.updateVersion();
+    };
+
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        try {
+          this.renderer.render(this.scene, this.camera);
+          const src = this.renderer.domElement;
+          const off = document.createElement("canvas");
+          off.width = src.width;
+          off.height = src.height;
+          const ctx = off.getContext("2d");
+          ctx.drawImage(src, 0, 0);
+
+          // 박스 원점 기준 8 corner
+          const hs = box.originalSize.clone().multiplyScalar(0.5);
+          const c = box.originPosition;
+          const corners = [];
+          for (const sx of [-1, 1])
+            for (const sy of [-1, 1])
+              for (const sz of [-1, 1])
+                corners.push(
+                  new THREE.Vector3(c.x + hs.x * sx, c.y + hs.y * sy, c.z + hs.z * sz)
+                );
+
+          // 스크린 투영
+          const w = src.width;
+          const h = src.height;
+          const sp = corners.map((v) => {
+            const p = v.clone().project(this.camera);
+            return { x: (p.x + 1) * 0.5 * w, y: (1 - (p.y + 1) * 0.5) * h, z: p.z };
+          });
+          // 카메라 뒤 (z > 1) 점이 많으면 박스가 화면 밖
+          if (sp.every((p) => p.z > 1 || p.z < -1)) {
+            restore();
+            resolve(null);
+            return;
+          }
+
+          const minX = Math.min(...sp.map((p) => p.x));
+          const maxX = Math.max(...sp.map((p) => p.x));
+          const minY = Math.min(...sp.map((p) => p.y));
+          const maxY = Math.max(...sp.map((p) => p.y));
+          const sampleOffset = 18;
+
+          const pts = [];
+          // 바닥 아래
+          for (let i = 0; i < 5; i++)
+            pts.push({ x: minX + (maxX - minX) * (0.15 + i * 0.175), y: maxY + sampleOffset });
+          // 양 옆
+          for (let i = 0; i < 3; i++) {
+            pts.push({ x: minX - sampleOffset, y: minY + (maxY - minY) * (0.3 + i * 0.2) });
+            pts.push({ x: maxX + sampleOffset, y: minY + (maxY - minY) * (0.3 + i * 0.2) });
+          }
+          // 위
+          for (let i = 0; i < 3; i++)
+            pts.push({ x: minX + (maxX - minX) * (0.3 + i * 0.2), y: minY - sampleOffset });
+
+          let r = 0, g = 0, b = 0, n = 0;
+          for (const p of pts) {
+            const x = Math.round(p.x), y = Math.round(p.y);
+            if (x < 0 || x >= w || y < 0 || y >= h) continue;
+            const d = ctx.getImageData(x, y, 1, 1).data;
+            r += d[0]; g += d[1]; b += d[2]; n++;
+          }
+          if (n === 0) {
+            restore();
+            resolve(null);
+            return;
+          }
+          r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+          restore();
+          resolve((r << 16) | (g << 8) | b);
+        } catch (err) {
+          console.warn("[sampleBoxBackground] 실패:", err);
+          restore();
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  // 박스 하나의 Fill 색을 새로 샘플링해 적용
+  async refreshFillColor(box) {
+    const color = await this.sampleBoxBackground(box);
+    if (color !== null) {
+      box.setFillColor(color);
+      console.log(
+        `[fill] "${box.name}" → #${color.toString(16).padStart(6, "0")}`
+      );
+    } else {
+      console.warn(`[fill] "${box.name}" 샘플링 실패 (박스가 화면 밖)`);
+    }
+  }
+
   createBox(position, size, opts = {}) {
     const { activate = true } = opts;
     this.boxCount++;
@@ -427,7 +579,10 @@ export class VmdEditor {
     box.id = this.boxCount;
     box.wireframe.visible = this.wireframesVisible;
     if (box.label) box.label.visible = this.wireframesVisible;
+    box.setFillEnabled(this.fillEnabledGlobal);
     this.boxes.push(box);
+    // 이동 전(Plane 숨김 상태) 에 즉시 주변 색 샘플링 — 가장 깨끗한 타이밍
+    this.refreshFillColor(box).catch(() => {});
     if (activate) this.selectBox(box);
     else this._syncBoxUniforms();
     this.splatMesh.updateVersion();
