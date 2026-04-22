@@ -6,7 +6,7 @@ spark/
 ml-sharp/
 sharp_2572gikvuh.pt
 venv/
-ply_outputs/*
+ply_outputs/
 !ply_outputs/.gitkeep
 .omc/
 .env
