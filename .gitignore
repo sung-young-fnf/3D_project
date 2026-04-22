@@ -1,7 +1,9 @@
 Plan.md
 scene.spz
 space.spz
+2D_space.spz
 spark/
+ml-sharp/
 .omc/
 .env
 .env.local
@@ -10,3 +12,5 @@ node_modules/
 dist/
 .vite/
 claude_vmd_report.md
+capture_report.md
+TASKS.md
