@@ -9,7 +9,7 @@ import {
 
 // ─── 단일 BOX 영역 ─────────────────────────────────────────
 class BoxRegion {
-  constructor(name, position, size, sharedEdit, scene) {
+  constructor(name, position, size, sharedEdit, scene, dummyMask) {
     this.id = null; // VmdEditor 가 createBox 에서 할당
     this.name = name;
     this.size = size.clone();
@@ -72,12 +72,48 @@ class BoxRegion {
     this.hitbox.userData.boxRegion = this;
     scene.add(this.hitbox);
 
-    // Fill mesh — 박스 원위치에 배치되는 단색 상자. 이동 시 visible.
-    //   일반 3D 객체로 렌더 (depth 기본 동작). 박스 밖에서 보이도록 FrontSide.
+    // Fill mesh — 박스 원위치에 배치, 이동 시 visible.
+    //   ShaderMaterial 로 각 픽셀을 마스크 캡처 시점 카메라로 역투영 →
+    //   마스크 "물체" 영역만 색 칠하고 나머지는 discard.
+    //   → 박스 AABB 가 커도 Fill 은 실제 물체 실루엣 모양으로만 보임.
+    //   마스크 없는 박스는 uHasMask=0 이라 박스 전체 색상자로 fallback.
     this.fillMesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({
-        color: 0xa0a080,
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uFillColor:      { value: new THREE.Color(0xa0a080) },
+          uMask:           { value: dummyMask },
+          uMaskViewMatrix: { value: new THREE.Matrix4() },
+          uMaskProjMatrix: { value: new THREE.Matrix4() },
+          uHasMask:        { value: 0.0 },
+        },
+        vertexShader: `
+          varying vec3 vWorldPos;
+          void main() {
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorldPos = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D uMask;
+          uniform mat4 uMaskViewMatrix;
+          uniform mat4 uMaskProjMatrix;
+          uniform vec3 uFillColor;
+          uniform float uHasMask;
+          varying vec3 vWorldPos;
+          void main() {
+            if (uHasMask > 0.5) {
+              vec4 clip = uMaskProjMatrix * uMaskViewMatrix * vec4(vWorldPos, 1.0);
+              if (clip.w <= 0.0) discard;
+              vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+              uv.y = 1.0 - uv.y;
+              if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) discard;
+              if (texture2D(uMask, uv).r < 0.5) discard;
+            }
+            gl_FragColor = vec4(uFillColor, 1.0);
+          }
+        `,
         side: THREE.FrontSide,
       })
     );
@@ -155,7 +191,7 @@ class BoxRegion {
   }
 
   setFillColor(hex) {
-    this.fillMesh.material.color.setHex(hex);
+    this.fillMesh.material.uniforms.uFillColor.value.setHex(hex);
     this.fillColorSampled = true;
   }
 
@@ -176,6 +212,12 @@ class BoxRegion {
     this.maskStatus = "ready";
     this.maskStatusMessage = "";
     this.maskCaptureId = captureId;
+    // Fill Plane 에도 동일 마스크/matrix 주입 → 실루엣 모양으로만 Fill 표시
+    const u = this.fillMesh.material.uniforms;
+    u.uMask.value = texture;
+    u.uMaskViewMatrix.value.copy(viewMatrix);
+    u.uMaskProjMatrix.value.copy(projMatrix);
+    u.uHasMask.value = 1.0;
   }
 
   clearMask() {
@@ -188,6 +230,9 @@ class BoxRegion {
     this.maskStatus = "none";
     this.maskStatusMessage = "";
     this.maskCaptureId = null;
+    // Fill Plane 을 박스 전체 색상자로 fallback
+    const u = this.fillMesh.material.uniforms;
+    u.uHasMask.value = 0.0;
   }
 
   remove(scene) {
@@ -574,7 +619,8 @@ export class VmdEditor {
       position,
       size,
       this.sharedEdit,
-      this.scene
+      this.scene,
+      this.dummyMask
     );
     box.id = this.boxCount;
     box.wireframe.visible = this.wireframesVisible;
