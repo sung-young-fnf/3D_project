@@ -450,13 +450,14 @@ export class VmdEditor {
         max.max(p);
       }
       center = min.clone().add(max).multiplyScalar(0.5);
-      // pad 1.4: 마스크 기반 필터링을 쓰므로 박스는 넉넉히. 물체 경계 Gaussian 이
-      // 박스 AABB 밖으로 빠져 이동 대상에서 제외되는 "잘린 물체" 문제를 줄임.
-      const pad = 1.4;
+      // XY 는 마스크가 픽셀 단위로 필터하므로 박스는 시각적 참조용. pad 는 작게.
+      // Z 만 박스 역할 (뒷벽 Gaussian 제외) 이라 depth pad 를 약간 더 줌.
+      const padXY = 1.1;
+      const padZ = 1.3;
       size = new THREE.Vector3(
-        Math.max((max.x - min.x) * pad, 0.15),
-        Math.max((max.y - min.y) * pad, 0.4),
-        Math.max((max.z - min.z) * pad, 0.15)
+        Math.max((max.x - min.x) * padXY, 0.1),
+        Math.max((max.y - min.y) * padXY, 0.3),
+        Math.max((max.z - min.z) * padZ, 0.15)
       );
     }
 
