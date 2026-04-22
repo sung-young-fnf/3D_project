@@ -59,6 +59,8 @@ splat.initialized.then(() => {
 
   // Splat 로드 후 에디터 초기화
   editor = new VmdEditor(splat, scene, camera, renderer);
+  // 콘솔에서 튜닝용 접근 (editor.setSoftEdge(0.2) 등)
+  window.editor = editor;
   updateUI();
 });
 

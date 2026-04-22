@@ -144,9 +144,14 @@ export class VmdEditor {
 
     // 모든 박스가 공유하는 단일 SplatEdit
     // → 내부 SDF들이 softmax로 블렌딩돼 한 번만 평가됨 (상호 간섭 방지)
+    // softEdge: SDF 경계 부근 ±값(월드 단위) 안의 Gaussian 은 displace 를 부분 적용.
+    //   박스 중앙 깊이의 Gaussian(= 물체일 확률 높음) → full displace
+    //   박스 경계 근처 Gaussian(= 배경이 섞였을 확률 높음) → smooth 부분 이동 (제자리에 가까움)
+    //   → 박스에 딸려온 배경이 새 위치로 선명하게 따라가지 않도록 완화.
+    this.softEdgeValue = 0.0;
     this.sharedEdit = new SplatEdit({
       name: "vmd-boxes",
-      softEdge: 0,
+      softEdge: this.softEdgeValue,
       sdfSmooth: 0,
     });
     splatMesh.add(this.sharedEdit);
@@ -246,6 +251,15 @@ export class VmdEditor {
       if (b.label) b.label.visible = this.wireframesVisible;
     });
     return this.wireframesVisible;
+  }
+
+  // 런타임에서 soft edge 값 조정 — 브라우저 콘솔에서 editor.setSoftEdge(0.2) 형태로 튜닝 가능
+  setSoftEdge(value) {
+    const v = Math.max(0, Number(value) || 0);
+    this.softEdgeValue = v;
+    this.sharedEdit.softEdge = v;
+    this.splatMesh.updateVersion();
+    return v;
   }
 
   createBox(position, size, opts = {}) {
