@@ -194,38 +194,105 @@ export class VmdEditor {
     });
     splatMesh.add(this.sharedEdit);
 
-    // ── 활성 박스 스케일 shader (MVP: 한 번에 1개 박스만) ──
-    // 활성 박스 "원본 AABB" 내부 splat 을 중심 기준 scale 배로 키움/줄임
-    this.scaleUniforms = {
-      enable: dyno.dynoFloat(0.0),
-      center: dyno.dynoVec3(new THREE.Vector3()),
-      halfSize: dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
-      scale: dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+    // ── 활성 박스 통합 shader (MVP: 한 번에 1개 박스만) ──
+    // 역할:
+    //   1) 객체 스케일: 박스 AABB 내 Gaussian 을 중심 기준 scale 배율로 확장/축소
+    //   2) 마스크 기반 displace: 박스 AABB 안 + 마스크 "흰색" 인 Gaussian 만 이동
+    //      (마스크 없으면 weight=1 로 AABB 전체 이동 — 기존 동작 호환)
+    //
+    // 비활성 박스의 displace 는 SplatEditSdf 의 sdf.displace 로 처리 (혼용 정책).
+    // 활성 박스는 selectBox() 에서 sdf.displace=0 으로 두고 이 worldModifier 가 전담.
+
+    // 더미 1×1 흰색 텍스처 — 마스크 없는 박스에 바인딩 (항상 weight=1 반환)
+    this.dummyMask = new THREE.DataTexture(
+      new Uint8Array([255, 255, 255, 255]),
+      1,
+      1,
+      THREE.RGBAFormat
+    );
+    this.dummyMask.needsUpdate = true;
+
+    this.boxUniforms = {
+      enable:     dyno.dynoFloat(0.0),
+      center:     dyno.dynoVec3(new THREE.Vector3()),
+      halfSize:   dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+      scale:      dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+      displace:   dyno.dynoVec3(new THREE.Vector3()),
+      viewMatrix: dyno.dynoMat4(new THREE.Matrix4()),
+      projMatrix: dyno.dynoMat4(new THREE.Matrix4()),
+      mask:       dyno.dynoSampler2D(this.dummyMask),
+      hasMask:    dyno.dynoFloat(0.0),
     };
+    // 기존 코드 호환 (외부에서 scaleUniforms 참조 가능성)
+    this.scaleUniforms = this.boxUniforms;
+
     splatMesh.worldModifier = dyno.dynoBlock(
       { gsplat: dyno.Gsplat },
       { gsplat: dyno.Gsplat },
       ({ gsplat }) => {
         const shader = new dyno.Dyno({
           inTypes: {
-            gsplat: dyno.Gsplat,
-            enable: "float",
-            center: "vec3",
-            halfSize: "vec3",
-            scale: "vec3",
+            gsplat:     dyno.Gsplat,
+            enable:     "float",
+            center:     "vec3",
+            halfSize:   "vec3",
+            scale:      "vec3",
+            displace:   "vec3",
+            viewMatrix: "mat4",
+            projMatrix: "mat4",
+            mask:       "sampler2D",
+            hasMask:    "float",
           },
           outTypes: { gsplat: dyno.Gsplat },
           statements: ({ inputs, outputs }) =>
             dyno.unindentLines(`
               ${outputs.gsplat} = ${inputs.gsplat};
               if (${inputs.enable} > 0.5) {
-                vec3 relPos = ${inputs.gsplat}.center - ${inputs.center};
+                vec3 origCenter = ${inputs.gsplat}.center;
+                vec3 relPos = origCenter - ${inputs.center};
                 vec3 absRel = abs(relPos);
-                if (absRel.x <= ${inputs.halfSize}.x
-                 && absRel.y <= ${inputs.halfSize}.y
-                 && absRel.z <= ${inputs.halfSize}.z) {
+                // 박스 AABB 는 Z 방향만 체크 — 물체 뒤편 Gaussian (벽 등) 을 걸러냄.
+                // XY 는 마스크가 픽셀 단위로 정확히 필터하므로 박스로 다시 자를 필요 없음.
+                //   → 박스를 XY 로 작게 그려도 물체가 잘리지 않음.
+                // 스케일 처리는 여전히 XYZ 박스 안에서만 적용 (기존 객체 스케일 탭 동작 유지).
+                bool inBoxFull =
+                     absRel.x <= ${inputs.halfSize}.x
+                  && absRel.y <= ${inputs.halfSize}.y
+                  && absRel.z <= ${inputs.halfSize}.z;
+                bool inBoxZ = absRel.z <= ${inputs.halfSize}.z;
+
+                if (inBoxFull) {
+                  // 1) 객체 스케일 (박스 중심 기준 relPos 확대) — XYZ 박스 안에서만
                   ${outputs.gsplat}.center = ${inputs.center} + relPos * ${inputs.scale};
                   ${outputs.gsplat}.scales *= ${inputs.scale};
+                }
+
+                if (inBoxZ) {
+                  // 2) 마스크 기반 displace — Z 만 박스, XY 는 마스크가 담당
+                  //    이진화(step) 로 Gaussian 이 "완전 이동 / 완전 정지" 둘 중 하나가 되도록.
+                  //    JPEG 경계 그라디언트로 인한 "지렁이처럼 끌림" 방지.
+                  float weight = 1.0;
+                  if (${inputs.hasMask} > 0.5) {
+                    vec4 clip = ${inputs.projMatrix} * ${inputs.viewMatrix} * vec4(origCenter, 1.0);
+                    if (clip.w > 0.0) {
+                      vec2 ndc = clip.xy / clip.w;
+                      vec2 uv = ndc * 0.5 + 0.5;
+                      uv.y = 1.0 - uv.y;
+                      if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
+                        float maskVal = texture(${inputs.mask}, uv).r;
+                        weight = step(0.5, maskVal);
+                      } else {
+                        weight = 0.0;
+                      }
+                    } else {
+                      weight = 0.0;
+                    }
+                  } else {
+                    // 마스크 없는 박스: XY 체크가 없으면 씬 전체가 이동 대상이 됨 → 위험.
+                    //   → 마스크 없는 박스만 기존대로 XYZ AABB 체크 (박스 안 전체 이동).
+                    weight = inBoxFull ? 1.0 : 0.0;
+                  }
+                  ${outputs.gsplat}.center += ${inputs.displace} * weight;
                 }
               }
             `),
@@ -233,10 +300,15 @@ export class VmdEditor {
         return {
           gsplat: shader.apply({
             gsplat,
-            enable: this.scaleUniforms.enable,
-            center: this.scaleUniforms.center,
-            halfSize: this.scaleUniforms.halfSize,
-            scale: this.scaleUniforms.scale,
+            enable:     this.boxUniforms.enable,
+            center:     this.boxUniforms.center,
+            halfSize:   this.boxUniforms.halfSize,
+            scale:      this.boxUniforms.scale,
+            displace:   this.boxUniforms.displace,
+            viewMatrix: this.boxUniforms.viewMatrix,
+            projMatrix: this.boxUniforms.projMatrix,
+            mask:       this.boxUniforms.mask,
+            hasMask:    this.boxUniforms.hasMask,
           }).gsplat,
         };
       }
@@ -333,6 +405,11 @@ export class VmdEditor {
     const newDispB = visA.clone().sub(b.originPosition);
     a.setDisplacement(newDispA);
     b.setDisplacement(newDispB);
+    // swap 은 SDF displace 경로로 진행. 활성 박스가 참여했다면 worldModifier 로 재이관.
+    if (this.activeBox === a || this.activeBox === b) {
+      this.activeBox.sdf.displace.set(0, 0, 0);
+      this._syncBoxUniforms();
+    }
     this.splatMesh.updateVersion();
     return true;
   }
@@ -373,11 +450,13 @@ export class VmdEditor {
         max.max(p);
       }
       center = min.clone().add(max).multiplyScalar(0.5);
-      const pad = 1.1;
+      // pad 1.4: 마스크 기반 필터링을 쓰므로 박스는 넉넉히. 물체 경계 Gaussian 이
+      // 박스 AABB 밖으로 빠져 이동 대상에서 제외되는 "잘린 물체" 문제를 줄임.
+      const pad = 1.4;
       size = new THREE.Vector3(
-        Math.max((max.x - min.x) * pad, 0.1),
-        Math.max((max.y - min.y) * pad, 0.3),
-        Math.max((max.z - min.z) * pad, 0.1)
+        Math.max((max.x - min.x) * pad, 0.15),
+        Math.max((max.y - min.y) * pad, 0.4),
+        Math.max((max.z - min.z) * pad, 0.15)
       );
     }
 
@@ -385,10 +464,22 @@ export class VmdEditor {
   }
 
   selectBox(box) {
-    if (this.activeBox) this.activeBox.setSelected(false);
+    // 이전 활성 박스 "굳히기": worldModifier displace 를 SDF 로 이관
+    //   → 비활성된 박스도 이동 결과가 유지됨
+    if (this.activeBox && this.activeBox !== box) {
+      this.activeBox.sdf.displace.copy(this.activeBox.displacement);
+      this.activeBox.setSelected(false);
+    } else if (this.activeBox) {
+      this.activeBox.setSelected(false);
+    }
     this.activeBox = box;
-    if (box) box.setSelected(true);
-    this._syncScaleUniforms();
+    if (box) {
+      box.setSelected(true);
+      // 새 활성: SDF displace 를 0 으로 두고 worldModifier 가 이어받음
+      box.sdf.displace.set(0, 0, 0);
+    }
+    this._syncBoxUniforms();
+    this.splatMesh.updateVersion();
   }
 
   removeActiveBox() {
@@ -398,7 +489,7 @@ export class VmdEditor {
       this.activeBox.remove(this.scene);
       this.boxes.splice(idx, 1);
       this.activeBox = null;
-      this._syncScaleUniforms();
+      this._syncBoxUniforms();
       this.splatMesh.updateVersion();
     }
   }
@@ -415,25 +506,43 @@ export class VmdEditor {
   updateActiveBoxScale(axis, value) {
     if (!this.activeBox) return;
     this.activeBox.scaleFactor[axis] = value;
-    this._syncScaleUniforms();
+    this._syncBoxUniforms();
     this.splatMesh.updateVersion();
   }
 
-  // 활성 박스의 AABB 판정 범위 + scaleFactor 를 dyno uniform에 반영
-  _syncScaleUniforms() {
+  // 활성 박스의 AABB 판정 범위 + scale/displace/mask 를 dyno uniform 에 반영
+  _syncBoxUniforms() {
     const box = this.activeBox;
     if (!box) {
-      this.scaleUniforms.enable.value = 0.0;
+      this.boxUniforms.enable.value = 0.0;
+      this.boxUniforms.hasMask.value = 0.0;
+      this.boxUniforms.mask.value = this.dummyMask;
       return;
     }
-    this.scaleUniforms.enable.value = 1.0;
-    this.scaleUniforms.center.value.copy(box.originPosition);
-    this.scaleUniforms.halfSize.value.set(
+    this.boxUniforms.enable.value = 1.0;
+    this.boxUniforms.center.value.copy(box.originPosition);
+    this.boxUniforms.halfSize.value.set(
       box.originalSize.x * 0.5,
       box.originalSize.y * 0.5,
       box.originalSize.z * 0.5
     );
-    this.scaleUniforms.scale.value.copy(box.scaleFactor);
+    this.boxUniforms.scale.value.copy(box.scaleFactor);
+    this.boxUniforms.displace.value.copy(box.displacement);
+
+    if (box.hasMask && box.mask && box.viewMatrix && box.projMatrix) {
+      this.boxUniforms.viewMatrix.value.copy(box.viewMatrix);
+      this.boxUniforms.projMatrix.value.copy(box.projMatrix);
+      this.boxUniforms.mask.value = box.mask;
+      this.boxUniforms.hasMask.value = 1.0;
+    } else {
+      this.boxUniforms.mask.value = this.dummyMask;
+      this.boxUniforms.hasMask.value = 0.0;
+    }
+  }
+
+  // 기존 이름 호환 — main.js 등 외부에서 호출할 수 있어 유지
+  _syncScaleUniforms() {
+    this._syncBoxUniforms();
   }
 
   // ─── 유틸리티 ─────────────────────────────────────────────
@@ -607,6 +716,7 @@ export class VmdEditor {
     // ─── 이동 모드: 드래그로 이동 ────────────────────────
     if (!this.isDragging || !this.activeBox) return;
 
+    let newDisp = null;
     if (e.shiftKey) {
       // Shift + 드래그: 높이(Y) 조절
       const inter = new THREE.Vector3();
@@ -621,22 +731,26 @@ export class VmdEditor {
       );
       if (this.raycaster.ray.intersectPlane(vertPlane, inter)) {
         const delta = inter.clone().sub(this.dragStartWorld);
-        const newDisp = this.dragBaseDisplacement.clone();
+        newDisp = this.dragBaseDisplacement.clone();
         newDisp.y += delta.y;
-        this.activeBox.setDisplacement(newDisp);
-        this.splatMesh.updateVersion();
       }
     } else {
       // 기본: 수평(XZ) 이동
       const inter = new THREE.Vector3();
       if (this.raycaster.ray.intersectPlane(this.dragPlane, inter)) {
         const delta = inter.clone().sub(this.dragStartWorld);
-        const newDisp = this.dragBaseDisplacement.clone();
+        newDisp = this.dragBaseDisplacement.clone();
         newDisp.x += delta.x;
         newDisp.z += delta.z;
-        this.activeBox.setDisplacement(newDisp);
-        this.splatMesh.updateVersion();
       }
+    }
+
+    if (newDisp) {
+      this.activeBox.setDisplacement(newDisp);
+      // 활성 박스는 worldModifier 가 displace 전담 — SDF displace 는 0 유지
+      this.activeBox.sdf.displace.set(0, 0, 0);
+      this._syncBoxUniforms();
+      this.splatMesh.updateVersion();
     }
   }
 

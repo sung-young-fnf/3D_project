@@ -357,6 +357,8 @@ document.getElementById("btn-mask-generate")?.addEventListener("click", () => {
 document.getElementById("btn-mask-clear")?.addEventListener("click", () => {
   if (!editor?.activeBox) return;
   editor.activeBox.clearMask();
+  editor._syncBoxUniforms();
+  editor.splatMesh.updateVersion();
   updateUI();
 });
 
@@ -480,7 +482,7 @@ async function requestSegmentForBox(box, { quiet = false } = {}) {
     const projMatrix = camera.projectionMatrix.clone();
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const timeoutId = setTimeout(() => controller.abort(), 65000);
 
     const resp = await fetch("/api/segment", {
       method: "POST",
@@ -497,6 +499,9 @@ async function requestSegmentForBox(box, { quiet = false } = {}) {
     const h = texture.image.naturalHeight || texture.image.height;
 
     box.setMask(texture, viewMatrix, projMatrix, { w, h }, data.capture_id);
+    // 활성 박스의 마스크가 바뀌면 worldModifier uniform 재바인딩 필요
+    if (box === editor.activeBox) editor._syncBoxUniforms();
+    editor.splatMesh.updateVersion();
     updateUI();
     if (!quiet) {
       console.log(`[segment] "${name}" ready (${data.capture_id}, ${w}x${h})`);
