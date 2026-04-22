@@ -19,6 +19,18 @@ class BoxRegion {
     this.scaleFactor = new THREE.Vector3(1, 1, 1); // 객체 스케일 배율
     this.sharedEdit = sharedEdit;
 
+    // ── Phase 2: segmentation 마스크 ──
+    // 마스크는 "생성 시점 카메라" 기준 2D 이미지. 이후 카메라가 바뀌어도
+    // 이 matrix 로 Gaussian 을 역투영해 UV 조회 → 물체/배경 판정.
+    this.mask = null;                // THREE.Texture
+    this.viewMatrix = null;          // THREE.Matrix4 (capture 시점)
+    this.projMatrix = null;          // THREE.Matrix4
+    this.maskImageSize = null;       // { w, h } — 마스크 원본 해상도
+    this.hasMask = false;
+    this.maskStatus = "none";        // "none" | "pending" | "ready" | "error"
+    this.maskStatusMessage = "";     // 에러 메시지 보관용
+    this.maskCaptureId = null;       // 서버 capture_id (디버그)
+
     // SplatEditSdf만 생성 → 공용 SplatEdit에 추가
     // (박스마다 SplatEdit을 따로 만들면 GPU에서 순차 적용돼
     //  다른 박스의 displace 결과가 이 박스의 SDF 판정에 간섭함 → 복제처럼 보임)
@@ -121,6 +133,31 @@ class BoxRegion {
     if (this.label) this.label.element.textContent = name;
   }
 
+  // 마스크 텍스처 + 캡처 시점 카메라 matrix 저장. Phase 4 셰이더가 이를 참조.
+  setMask(texture, viewMatrix, projMatrix, imageSize, captureId = null) {
+    if (this.mask && this.mask !== texture) this.mask.dispose();
+    this.mask = texture;
+    this.viewMatrix = viewMatrix.clone();
+    this.projMatrix = projMatrix.clone();
+    this.maskImageSize = { w: imageSize.w, h: imageSize.h };
+    this.hasMask = true;
+    this.maskStatus = "ready";
+    this.maskStatusMessage = "";
+    this.maskCaptureId = captureId;
+  }
+
+  clearMask() {
+    if (this.mask) this.mask.dispose();
+    this.mask = null;
+    this.viewMatrix = null;
+    this.projMatrix = null;
+    this.maskImageSize = null;
+    this.hasMask = false;
+    this.maskStatus = "none";
+    this.maskStatusMessage = "";
+    this.maskCaptureId = null;
+  }
+
   remove(scene) {
     scene.remove(this.wireframe);
     scene.remove(this.hitbox);
@@ -131,6 +168,7 @@ class BoxRegion {
     this.hitbox.geometry.dispose();
     this.hitbox.material.dispose();
     if (this.label) this.label.element.remove();
+    if (this.mask) this.mask.dispose();
   }
 }
 

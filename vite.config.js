@@ -88,6 +88,30 @@ const ENHANCE_PROMPT = `**작업 정의**: 이 이미지는 3D Gaussian Splattin
 
 **박스 와이어프레임 선 제거 → 박스 선 내부만 디노이징 → 박스 밖의 ghost(이동 잔재)는 배경으로 지움 → 그 외 픽셀은 원본 그대로. 같은 물체가 2개 선명하게 출력되면 실패. 당신의 창의력은 필요없다. 선·ghost 제거 + 국소 노이즈 제거만 하라.**`;
 
+const SEGMENT_PROMPT = `**작업**: 이 이미지에서 "{target}" 에 해당하는 물체의 **픽셀 단위 이진 마스크** 를 생성하라.
+
+**출력 요구사항**:
+- 입력 이미지와 **완전히 동일한 해상도·구도·프레이밍** 의 이미지를 출력.
+- "{target}" 에 해당하는 픽셀은 **순수 흰색 (RGB 255,255,255)**.
+- 그 외 모든 픽셀 (배경·다른 물체·바닥·그림자) 은 **순수 검정 (RGB 0,0,0)**.
+- **회색·그라디언트·앤티앨리어싱 금지** — 오직 흑 또는 백 두 가지 색만.
+- 물체의 정확한 윤곽을 픽셀 단위로 표시. 직사각형 근사 금지.
+
+**물체 식별 규칙**:
+- 여러 부분으로 구성된 물체(예: 손잡이 + 본체)는 모두 흰색.
+- 물체에 붙어 있는 라벨·스티커·로고는 물체의 일부로 간주 → 흰색.
+- 물체가 가려져 일부만 보이면 **보이는 픽셀만** 흰색. 추측으로 가린 부분까지 확장하지 말 것.
+- 화면에 "{target}" 이 여러 개 있으면 모두 흰색 (같은 종류 물체 전부).
+
+**절대 금지**:
+- 배경 벽·바닥·천장을 흰색으로 표시
+- 대상 물체와 인접한 다른 물체를 같은 마스크에 포함
+- 회색 음영으로 "애매함" 표현
+- 원본 이미지 색상 보존 (출력은 순수 흑백)
+- 해상도 변경·크롭·리사이즈
+
+**한 줄 요약**: 입력 이미지와 똑같은 크기의 흑백 이미지. "{target}" = 흰색, 나머지 = 검정. 끝.`;
+
 function claudeDetectPlugin() {
   const capturesDir = resolve(__dirname, "captures");
 
@@ -213,6 +237,116 @@ function claudeDetectPlugin() {
           });
         } catch (err) {
           console.error("[/api/enhance]", err);
+          sendJson(500, { error: String(err?.message ?? err) });
+        }
+      });
+
+      // Gemini 물체 마스크 생성 엔드포인트 — 박스 내 물체 픽셀만 흰색 표시한 이진 마스크 반환
+      server.middlewares.use("/api/segment", async (req, res, next) => {
+        if (req.method !== "POST") {
+          next();
+          return;
+        }
+        const sendJson = (status, payload) => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        try {
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          const raw = Buffer.concat(chunks).toString("utf8");
+          let body;
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            return sendJson(400, { error: "invalid json body" });
+          }
+          const { image_base64, target, bbox } = body;
+          if (!image_base64) return sendJson(400, { error: "image_base64 required" });
+          if (typeof target !== "string" || !target.trim()) {
+            return sendJson(400, { error: "target (물체 이름) required" });
+          }
+
+          const apiKey = process.env.GEMINI_API_KEY;
+          if (!apiKey) {
+            return sendJson(500, { error: "GEMINI_API_KEY not set in .env" });
+          }
+          const modelId = process.env.GEMINI_MODEL_ID ?? "gemini-3.1-flash-image-preview";
+
+          if (!existsSync(capturesDir)) mkdirSync(capturesDir, { recursive: true });
+          const capture_id = timestampId();
+          writeFileSync(
+            join(capturesDir, `${capture_id}-for-mask.jpg`),
+            Buffer.from(image_base64, "base64")
+          );
+
+          // bbox 있으면 프롬프트에 위치 힌트 추가 (정규화 좌표 0~1, 좌상단 원점)
+          let bboxContext = "";
+          if (Array.isArray(bbox) && bbox.length === 4) {
+            const [x1, y1, x2, y2] = bbox.map(Number);
+            if ([x1, y1, x2, y2].every(Number.isFinite)) {
+              bboxContext =
+                `\n\n**위치 힌트**: 대상 "${target}" 은 이미지의 정규화 좌표 ` +
+                `[x1=${x1.toFixed(3)}, y1=${y1.toFixed(3)}, x2=${x2.toFixed(3)}, y2=${y2.toFixed(3)}] ` +
+                `(좌상단 원점, 0~1 범위) 영역 안에 있다. 이 영역 주변의 "${target}" 픽셀만 흰색으로.`;
+            }
+          }
+
+          const prompt =
+            SEGMENT_PROMPT.replace(/\{target\}/g, target.trim()) + bboxContext;
+
+          const parts = [
+            { inline_data: { mime_type: "image/jpeg", data: image_base64 } },
+            { text: prompt },
+          ];
+
+          const started = Date.now();
+          const geminiCall = fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-goog-api-key": apiKey,
+              },
+              body: JSON.stringify({
+                contents: [{ parts }],
+              }),
+            }
+          );
+          const geminiResp = await withTimeout(geminiCall, 40000, "Gemini");
+
+          if (!geminiResp.ok) {
+            const errText = await geminiResp.text().catch(() => "");
+            return sendJson(geminiResp.status, {
+              error: `Gemini ${geminiResp.status}: ${errText.slice(0, 400)}`,
+            });
+          }
+          const data = await geminiResp.json();
+          const part = data?.candidates?.[0]?.content?.parts?.find(
+            (p) => p.inline_data || p.inlineData
+          );
+          const inline = part?.inline_data ?? part?.inlineData;
+          if (!inline?.data) {
+            return sendJson(502, { error: "Gemini 응답에 마스크 이미지가 없음" });
+          }
+          const mask_base64 = inline.data;
+          const mask_mime = inline.mime_type ?? inline.mimeType ?? "image/png";
+          const ext = mask_mime.includes("png") ? "png" : "jpg";
+          writeFileSync(
+            join(capturesDir, `${capture_id}-mask.${ext}`),
+            Buffer.from(mask_base64, "base64")
+          );
+
+          sendJson(200, {
+            capture_id,
+            mask_base64,
+            mask_mime,
+            target: target.trim(),
+            elapsed_ms: Date.now() - started,
+          });
+        } catch (err) {
+          console.error("[/api/segment]", err);
           sendJson(500, { error: String(err?.message ?? err) });
         }
       });

@@ -61,6 +61,7 @@ splat.initialized.then(() => {
   editor = new VmdEditor(splat, scene, camera, renderer);
   // 콘솔에서 튜닝용 접근 (editor.setSoftEdge(0.2) 등)
   window.editor = editor;
+  window.captureCanvas = captureCanvas;
   updateUI();
 });
 
@@ -169,6 +170,13 @@ function updateUI() {
 }
 
 // ─── 영역 목록 패널 ──────────────────────────────────────
+const MASK_BADGE = {
+  none: "",
+  pending: " ⏳",
+  ready: " ✅",
+  error: " ❌",
+};
+
 function updateBoxList() {
   const list = document.getElementById("box-list");
   if (!list || !editor) return;
@@ -177,7 +185,15 @@ function updateBoxList() {
   editor.boxes.forEach((box) => {
     const item = document.createElement("div");
     item.className = "box-item" + (box === editor.activeBox ? " active" : "");
-    item.textContent = box.name;
+    item.textContent = box.name + (MASK_BADGE[box.maskStatus] ?? "");
+    item.title =
+      box.maskStatus === "error"
+        ? `마스크 에러: ${box.maskStatusMessage}`
+        : box.maskStatus === "ready"
+        ? "마스크 적용됨"
+        : box.maskStatus === "pending"
+        ? "마스크 생성 중"
+        : "마스크 없음";
     item.addEventListener("click", () => {
       editor.selectBox(box);
       updateUI();
@@ -237,6 +253,27 @@ function updatePropertyPanel() {
   const disp = box.displacement;
   document.getElementById("disp-value").textContent =
     `X: ${disp.x.toFixed(2)}  Y: ${disp.y.toFixed(2)}  Z: ${disp.z.toFixed(2)}`;
+
+  // 마스크 상태
+  const maskStatusEl = document.getElementById("mask-status");
+  const btnGen = document.getElementById("btn-mask-generate");
+  const btnPrev = document.getElementById("btn-mask-preview");
+  const btnClr = document.getElementById("btn-mask-clear");
+  if (maskStatusEl) {
+    maskStatusEl.className = `mask-status ${box.maskStatus}`;
+    maskStatusEl.textContent = {
+      none: "없음",
+      pending: "생성 중...",
+      ready: `적용됨${box.maskImageSize ? ` (${box.maskImageSize.w}×${box.maskImageSize.h})` : ""}`,
+      error: `에러: ${box.maskStatusMessage || "알 수 없음"}`,
+    }[box.maskStatus] || "없음";
+  }
+  if (btnGen) {
+    btnGen.textContent = box.maskStatus === "ready" ? "재생성" : "생성";
+    btnGen.disabled = box.maskStatus === "pending";
+  }
+  if (btnPrev) btnPrev.disabled = !box.hasMask;
+  if (btnClr) btnClr.disabled = !box.hasMask && box.maskStatus !== "error";
 }
 
 // 탭1: 영역 크기 슬라이더
@@ -311,6 +348,40 @@ document.getElementById("btn-delete")?.addEventListener("click", () => {
   }
 });
 
+// ─── 마스크 버튼 (🎭 생성 / 미리보기 / 제거) ─────────────
+document.getElementById("btn-mask-generate")?.addEventListener("click", () => {
+  if (!editor?.activeBox) return;
+  requestSegmentForBox(editor.activeBox);
+});
+
+document.getElementById("btn-mask-clear")?.addEventListener("click", () => {
+  if (!editor?.activeBox) return;
+  editor.activeBox.clearMask();
+  updateUI();
+});
+
+document.getElementById("btn-mask-preview")?.addEventListener("click", () => {
+  const box = editor?.activeBox;
+  if (!box || !box.mask || !box.mask.image) return;
+  const existing = document.getElementById("mask-preview-popup");
+  if (existing) existing.remove();
+  const wrap = document.createElement("div");
+  wrap.id = "mask-preview-popup";
+  wrap.style.cssText =
+    "position:fixed;top:20px;right:20px;z-index:9999;background:#111;" +
+    "border:2px solid #caf;padding:6px;border-radius:6px;max-width:380px;";
+  const title = document.createElement("div");
+  title.style.cssText = "color:#caf;font-size:0.7rem;margin-bottom:4px;";
+  title.textContent = `마스크: ${box.name} (클릭해서 닫기)`;
+  const imgEl = document.createElement("img");
+  imgEl.src = box.mask.image.src || "";
+  imgEl.style.cssText = "max-width:100%;display:block;background:#000;";
+  wrap.appendChild(title);
+  wrap.appendChild(imgEl);
+  wrap.onclick = () => wrap.remove();
+  document.body.appendChild(wrap);
+});
+
 // 모드 버튼 클릭
 document.getElementById("btn-camera")?.addEventListener("click", () => setMode("camera"));
 document.getElementById("btn-select")?.addEventListener("click", () => setMode("select"));
@@ -356,26 +427,108 @@ function startElapsedTicker(label) {
 }
 
 async function captureCanvas() {
-  // preserveDrawingBuffer=false 이므로 즉시 한 프레임 강제 렌더 후 복사
-  renderer.render(scene, camera);
-  const src = renderer.domElement;
-  const maxDim = 1600;
-  const scale = Math.min(1, maxDim / Math.max(src.width, src.height));
-  const dw = Math.round(src.width * scale);
-  const dh = Math.round(src.height * scale);
-  const off = document.createElement("canvas");
-  off.width = dw;
-  off.height = dh;
-  off.getContext("2d").drawImage(src, 0, 0, dw, dh);
-  const blob = await new Promise((r) => off.toBlob(r, "image/jpeg", 0.85));
-  if (!blob) throw new Error("캔버스 캡처 실패");
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("base64 인코딩 실패"));
-    reader.readAsDataURL(blob);
+  // preserveDrawingBuffer=false 환경에서 compositor 가 drawingBuffer 를 삼키기 전
+  // render → drawImage → toDataURL 을 한 rAF 콜백 안에서 동기 실행해야 안정적이다.
+  return new Promise((resolve, reject) => {
+    requestAnimationFrame(() => {
+      try {
+        renderer.render(scene, camera);
+        const src = renderer.domElement;
+        const maxDim = 1600;
+        const scale = Math.min(1, maxDim / Math.max(src.width, src.height));
+        const dw = Math.round(src.width * scale);
+        const dh = Math.round(src.height * scale);
+        const off = document.createElement("canvas");
+        off.width = dw;
+        off.height = dh;
+        off.getContext("2d").drawImage(src, 0, 0, dw, dh);
+        const dataUrl = off.toDataURL("image/jpeg", 0.85);
+        if (!dataUrl || dataUrl.length < 200) {
+          reject(new Error("캔버스 캡처 결과가 비어있음"));
+          return;
+        }
+        resolve(dataUrl.split(",")[1]);
+      } catch (err) {
+        reject(err);
+      }
+    });
   });
-  return dataUrl.split(",")[1];
+}
+
+// ─── Phase 2: 마스크 요청 유틸 ────────────────────────────
+// 박스 하나에 대해 /api/segment 호출 + 결과를 THREE.Texture 로 변환 + BoxRegion 에 저장.
+// 병렬 호출 대응을 위해 박스 단위 상태만 갱신 (claudeStatus 는 건드리지 않음).
+async function requestSegmentForBox(box, { quiet = false } = {}) {
+  if (!box) return { ok: false, reason: "박스 없음" };
+  const name = (box.name || "").trim();
+  // "영역 1" 같은 기본 이름은 segmentation 대상으로 부적절
+  if (!name || /^영역\s*\d+$/.test(name)) {
+    box.maskStatus = "error";
+    box.maskStatusMessage = "이름을 먼저 지정하세요";
+    updateUI();
+    return { ok: false, reason: box.maskStatusMessage };
+  }
+
+  box.maskStatus = "pending";
+  box.maskStatusMessage = "";
+  updateUI();
+
+  try {
+    const image_base64 = await captureCanvas();
+    // 캡처 시점 카메라 matrix 사본 — 이후 카메라가 움직여도 이 값으로 역투영
+    const viewMatrix = camera.matrixWorldInverse.clone();
+    const projMatrix = camera.projectionMatrix.clone();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    const resp = await fetch("/api/segment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_base64, target: name }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+    const texture = await loadMaskTexture(data.mask_base64, data.mask_mime);
+    const w = texture.image.naturalWidth || texture.image.width;
+    const h = texture.image.naturalHeight || texture.image.height;
+
+    box.setMask(texture, viewMatrix, projMatrix, { w, h }, data.capture_id);
+    updateUI();
+    if (!quiet) {
+      console.log(`[segment] "${name}" ready (${data.capture_id}, ${w}x${h})`);
+    }
+    return { ok: true, capture_id: data.capture_id };
+  } catch (err) {
+    box.maskStatus = "error";
+    box.maskStatusMessage = err.name === "AbortError" ? "시간 초과" : (err.message || String(err));
+    updateUI();
+    if (!quiet) console.warn(`[segment] "${name}" failed:`, box.maskStatusMessage);
+    return { ok: false, reason: box.maskStatusMessage };
+  }
+}
+
+// 마스크 base64 → THREE.Texture 로드 (DataTexture 대신 Image 기반 — 알파 채널 보존 가능)
+async function loadMaskTexture(mask_base64, mime = "image/png") {
+  const dataUrl = `data:${mime};base64,${mask_base64}`;
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error("마스크 이미지 로드 실패"));
+    img.src = dataUrl;
+  });
+  const texture = new THREE.Texture(img);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.flipY = false; // 셰이더에서 UV 계산 일관성 위해
+  texture.needsUpdate = true;
+  return texture;
 }
 
 async function callClaudeDetect(target, mode) {
@@ -411,18 +564,33 @@ async function callClaudeDetect(target, mode) {
 
     const dets = data.detections ?? [];
     let created = 0;
+    const newBoxes = [];
     for (const d of dets) {
       const box = editor.createBoxFromScreenBBox(d.bbox);
       if (box) {
         if (d.label) box.setName(d.label);
         created++;
+        newBoxes.push(box);
       }
     }
     setClaudeStatus(
       "ok",
-      `감지 ${dets.length}건 → 박스 ${created}개 (${elapsed}s)`
+      `감지 ${dets.length}건 → 박스 ${created}개 (${elapsed}s) · 마스크 생성 중...`
     );
     updateUI();
+
+    // Claude 자동 박스는 segmentation 도 자동. 병렬 호출, 각자 끝나는 대로 UI 갱신.
+    // await Promise.all 로 기다려 전체 상태를 표시하되, 하나 실패해도 다른 건 계속.
+    if (newBoxes.length > 0) {
+      const segResults = await Promise.all(
+        newBoxes.map((b) => requestSegmentForBox(b, { quiet: true }))
+      );
+      const okCount = segResults.filter((r) => r.ok).length;
+      setClaudeStatus(
+        okCount === newBoxes.length ? "ok" : "loading",
+        `감지 ${dets.length}건 · 박스 ${created} · 마스크 ${okCount}/${newBoxes.length} (${ticker.elapsed()}s)`
+      );
+    }
   } catch (err) {
     const elapsed = ticker.elapsed();
     if (err.name === "AbortError") {

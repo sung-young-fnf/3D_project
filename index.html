@@ -101,6 +101,35 @@
     }
     #btn-delete:hover { background: rgba(255,60,60,0.3); }
 
+    /* Phase 2: 마스크 섹션 */
+    .mask-section {
+      margin-top: 0.6rem; padding-top: 0.5rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .mask-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+    .mask-label { color: #aaa; font-size: 0.72rem; font-weight: 500; }
+    .mask-status { font-size: 0.68rem; letter-spacing: 0.02em; }
+    .mask-status.none    { color: #555; }
+    .mask-status.pending { color: #0af; }
+    .mask-status.ready   { color: #6c6; }
+    .mask-status.error   { color: #f66; }
+    .mask-actions {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.3rem;
+    }
+    .mask-actions button {
+      padding: 0.3rem 0.3rem;
+      background: rgba(180,120,255,0.14); border: 1px solid rgba(180,120,255,0.32);
+      color: #caf; border-radius: 4px; cursor: pointer;
+      font-size: 0.68rem; transition: all 0.15s;
+    }
+    .mask-actions button:hover:not(:disabled) {
+      background: rgba(180,120,255,0.28); color: #fff;
+    }
+    .mask-actions button:disabled { opacity: 0.3; cursor: not-allowed; }
+
     /* 속성 탭 */
     .prop-tabs {
       display: flex; gap: 0.2rem; margin-bottom: 0.5rem;
@@ -304,6 +333,20 @@
 
     <div style="color:#666; font-size:0.68rem; margin-top:0.5rem;">이동량</div>
     <div id="disp-value">X: 0.00  Y: 0.00  Z: 0.00</div>
+
+    <!-- Phase 2: 마스크 (C 안) -->
+    <div class="mask-section">
+      <div class="mask-row">
+        <span class="mask-label">🎭 마스크</span>
+        <span id="mask-status" class="mask-status none">없음</span>
+      </div>
+      <div class="mask-actions">
+        <button id="btn-mask-generate" title="현재 박스 이름으로 Gemini 마스크 생성">생성</button>
+        <button id="btn-mask-preview" title="저장된 마스크 미리보기" disabled>미리보기</button>
+        <button id="btn-mask-clear" title="마스크 제거" disabled>제거</button>
+      </div>
+    </div>
+
     <button id="btn-delete">삭제 (Delete)</button>
   </div>
 
