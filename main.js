@@ -499,8 +499,8 @@ async function requestSegmentForBox(box, { quiet = false } = {}) {
     const h = texture.image.naturalHeight || texture.image.height;
 
     box.setMask(texture, viewMatrix, projMatrix, { w, h }, data.capture_id);
-    // 활성 박스의 마스크가 바뀌면 worldModifier uniform 재바인딩 필요
-    if (box === editor.activeBox) editor._syncBoxUniforms();
+    // 슬롯 uniform 전체 재동기화 — 활성 박스 아니어도 슬롯 N 번에 들어가 있음
+    editor._syncBoxUniforms();
     editor.splatMesh.updateVersion();
     updateUI();
     if (!quiet) {
